@@ -14,7 +14,7 @@ import string
 import time
 from datetime import datetime
 
-SIGNALING_SERVER = "https://your-app-name.onrender.com"
+SIGNALING_SERVER = "https://remote-desktop-server-u2np.onrender.com"
 
 
 class DiscoveryServer:
