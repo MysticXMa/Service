@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: screen-share-server
+    env: python
+    buildCommand: cd server && pip install -r requirements.txt
+    startCommand: cd server && gunicorn server:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
