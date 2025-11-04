@@ -1,364 +1,240 @@
-from flask import Flask, request, jsonify, render_template
-import base64
-import io
-import time
-import random
-import string
-from datetime import datetime
+import socket
 import threading
-
-app = Flask(__name__)
-
-# Enhanced data structures
-servers = {}
-clients = {}
-server_list = []
-
-
-def generate_id(length=8):
-    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
-
-
-@app.route('/create_server', methods=['POST'])
-def create_server():
-    data = request.json
-    name = data.get('name', 'Unnamed Server')
-    password = data.get('password', '')
-    max_clients = data.get('max_clients', 10)
-
-    server_id = generate_id()
-
-    servers[server_id] = {
-        'name': name,
-        'password': password,
-        'max_clients': max_clients,
-        'created_at': time.time(),
-        'last_update': time.time(),
-        'clients': [],
-        'frame': '',
-        'host_online': True
-    }
-
-    update_server_list()
-
-    return jsonify({
-        'server_id': server_id,
-        'name': name,
-        'status': 'created'
-    })
-
-
-@app.route('/join_server', methods=['POST'])
-def join_server():
-    data = request.json
-    server_id = data.get('server_id')
-    password = data.get('password', '')
-    client_name = data.get('client_name', 'Anonymous')
-
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    server = servers[server_id]
-
-    # Check password
-    if server['password'] and server['password'] != password:
-        return jsonify({'error': 'Invalid password'}), 403
-
-    # Check client limit
-    if len(server['clients']) >= server['max_clients']:
-        return jsonify({'error': 'Server is full'}), 409
-
-    # Create client
-    client_id = generate_id()
-    clients[client_id] = {
-        'name': client_name,
-        'server_id': server_id,
-        'joined_at': time.time(),
-        'last_active': time.time(),
-        'has_control': False,
-        'control_requested': False
-    }
-
-    # Add client to server
-    server['clients'].append(client_id)
-    server['last_update'] = time.time()
-
-    update_server_list()
-
-    return jsonify({
-        'client_id': client_id,
-        'server_name': server['name'],
-        'status': 'joined'
-    })
-
-
-@app.route('/update_frame', methods=['POST'])
-def update_frame():
-    data = request.json
-    server_id = data.get('server_id')
-    frame_data = data.get('frame')
-    timestamp = data.get('timestamp')
-
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    server = servers[server_id]
-    server['frame'] = frame_data
-    server['last_update'] = time.time()
-    server['host_online'] = True
-
-    return jsonify({'status': 'success'})
-
-
-@app.route('/server_frame/<server_id>')
-def get_server_frame(server_id):
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    server = servers[server_id]
-
-    # Check if frame is too old
-    if time.time() - server['last_update'] > 10:
-        return jsonify({'error': 'Server offline'}), 408
-
-    return jsonify({
-        'frame': server['frame'],
-        'timestamp': server['last_update'],
-        'server_name': server['name']
-    })
-
-
-@app.route('/server_clients/<server_id>')
-def get_server_clients(server_id):
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    server = servers[server_id]
-    client_list = []
-
-    # Clean up disconnected clients
-    active_clients = []
-    for client_id in server['clients']:
-        if client_id in clients and time.time() - clients[client_id]['last_active'] < 30:
-            active_clients.append(client_id)
-            client_data = clients[client_id]
-            client_list.append({
-                'id': client_id,
-                'name': client_data['name'],
-                'has_control': client_data['has_control'],
-                'control_requested': client_data['control_requested'],
-                'last_active': client_data['last_active']
-            })
-        else:
-            # Remove disconnected client
-            if client_id in clients:
-                del clients[client_id]
-
-    server['clients'] = active_clients
-    server['last_update'] = time.time()
-
-    return jsonify({'clients': client_list})
-
-
-@app.route('/grant_control', methods=['POST'])
-def grant_control():
-    data = request.json
-    server_id = data.get('server_id')
-    client_id = data.get('client_id')
-
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    if client_id not in clients or clients[client_id]['server_id'] != server_id:
-        return jsonify({'error': 'Client not found'}), 404
-
-    # Revoke control from all other clients in this server
-    for cid in servers[server_id]['clients']:
-        if cid in clients:
-            clients[cid]['has_control'] = False
-
-    # Grant control to specified client
-    clients[client_id]['has_control'] = True
-    clients[client_id]['control_requested'] = False
-
-    servers[server_id]['last_update'] = time.time()
-
-    return jsonify({'status': 'control_granted'})
-
-
-@app.route('/revoke_control', methods=['POST'])
-def revoke_control():
-    data = request.json
-    server_id = data.get('server_id')
-    client_id = data.get('client_id')
-
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    if client_id not in clients or clients[client_id]['server_id'] != server_id:
-        return jsonify({'error': 'Client not found'}), 404
-
-    clients[client_id]['has_control'] = False
-    servers[server_id]['last_update'] = time.time()
-
-    return jsonify({'status': 'control_revoked'})
-
-
-@app.route('/request_control', methods=['POST'])
-def request_control():
-    data = request.json
-    client_id = data.get('client_id')
-
-    if client_id not in clients:
-        return jsonify({'error': 'Client not found'}), 404
-
-    clients[client_id]['control_requested'] = True
-    clients[client_id]['last_active'] = time.time()
-
-    return jsonify({'status': 'control_requested'})
-
-
-@app.route('/kick_client', methods=['POST'])
-def kick_client():
-    data = request.json
-    server_id = data.get('server_id')
-    client_id = data.get('client_id')
-
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    if client_id in servers[server_id]['clients']:
-        servers[server_id]['clients'].remove(client_id)
-
-    if client_id in clients:
-        del clients[client_id]
-
-    servers[server_id]['last_update'] = time.time()
-    update_server_list()
-
-    return jsonify({'status': 'client_kicked'})
-
-
-@app.route('/stop_server', methods=['POST'])
-def stop_server():
-    data = request.json
-    server_id = data.get('server_id')
-
-    if server_id not in servers:
-        return jsonify({'error': 'Server not found'}), 404
-
-    # Remove all clients from this server
-    for client_id in servers[server_id]['clients'][:]:
-        if client_id in clients:
-            del clients[client_id]
-        servers[server_id]['clients'].remove(client_id)
-
-    # Remove server
-    del servers[server_id]
-    update_server_list()
-
-    return jsonify({'status': 'server_stopped'})
-
-
-@app.route('/servers')
-def get_servers_list():
-    cleanup_old_servers()
-    return jsonify({'servers': server_list})
-
-
-def update_server_list():
-    global server_list
-    cleanup_old_servers()
-
-    server_list = []
-    for server_id, server in servers.items():
-        if time.time() - server['last_update'] < 30:  # Server is active
-            server_list.append({
-                'id': server_id,
-                'name': server['name'],
-                'password': bool(server['password']),
-                'client_count': len(server['clients']),
-                'max_clients': server['max_clients'],
-                'created_at': server['created_at'],
-                'last_active': server['last_update']
-            })
-
-
-def cleanup_old_servers():
-    current_time = time.time()
-    servers_to_remove = []
-    clients_to_remove = []
-
-    # Remove old servers
-    for server_id, server in servers.items():
-        if current_time - server['last_update'] > 30:  # 30 seconds timeout
-            servers_to_remove.append(server_id)
-            # Mark all clients for removal
-            clients_to_remove.extend(server['clients'])
-
-    # Remove old clients
-    for client_id, client in clients.items():
-        if current_time - client['last_active'] > 30:
-            clients_to_remove.append(client_id)
-
-    # Perform cleanup
-    for server_id in servers_to_remove:
-        del servers[server_id]
-
-    for client_id in clients_to_remove:
-        if client_id in clients:
-            del clients[client_id]
-
-
-# Background cleanup thread
-def background_cleanup():
-    while True:
+import json
+import time
+from datetime import datetime
+
+class GameServer:
+    def __init__(self, host='0.0.0.0', port=5555, max_players=4, password=None):
+        self.host = host
+        self.port = port
+        self.max_players = max_players
+        self.password = password
+        self.clients = []
+        self.running = False
+        self.server_socket = None
+        self.registered_servers = []
+
+    def start_server(self):
         try:
-            cleanup_old_servers()
-            update_server_list()
-            time.sleep(10)  # Run every 10 seconds
-        except:
-            time.sleep(10)
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(5)
+            self.running = True
 
+            print(f"Server started on {self.host}:{self.port}")
+            print(f"Max players: {self.max_players}")
+            print(f"Password protected: {self.password is not None}")
 
-@app.route('/')
-def home():
-    cleanup_old_servers()
-    return jsonify({
-        'status': 'NeonShare Server is running',
-        'active_servers': len(servers),
-        'active_clients': len(clients),
-        'total_connections': len(server_list),
-        'timestamp': datetime.now().isoformat()
-    })
+            self.register_with_central_server()
 
+            accept_thread = threading.Thread(target=self.accept_clients)
+            accept_thread.daemon = True
+            accept_thread.start()
 
-@app.route('/status')
-def status():
-    cleanup_old_servers()
-    return jsonify({
-        'servers': {
-            'total': len(servers),
-            'details': {server_id: {
-                'name': server['name'],
-                'clients': len(server['clients']),
-                'last_update': server['last_update']
-            } for server_id, server in servers.items()}
-        },
-        'clients': {
-            'total': len(clients),
-            'details': {client_id: {
-                'name': client['name'],
-                'server': client['server_id'],
-                'has_control': client['has_control']
-            } for client_id, client in clients.items()}
+            heartbeat_thread = threading.Thread(target=self.send_heartbeat)
+            heartbeat_thread.daemon = True
+            heartbeat_thread.start()
+
+            return True
+
+        except Exception as e:
+            print(f"Failed to start server: {e}")
+            return False
+
+    def register_with_central_server(self):
+        try:
+            central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            central_socket.connect(('service-zopk.onrender.com', 5555))
+
+            server_info = {
+                'action': 'register',
+                'name': f"Game Server {self.port}",
+                'host': self.host,
+                'port': self.port,
+                'max_players': self.max_players,
+                'has_password': self.password is not None,
+                'current_players': len(self.clients),
+                'status': 'online'
+            }
+
+            central_socket.send(json.dumps(server_info).encode('utf-8'))
+            response = central_socket.recv(1024).decode('utf-8')
+            print(f"Registration response: {response}")
+            central_socket.close()
+
+        except Exception as e:
+            print(f"Failed to register with central server: {e}")
+
+    def send_heartbeat(self):
+        while self.running:
+            try:
+                central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                central_socket.connect(('service-zopk.onrender.com', 5555))
+
+                heartbeat_info = {
+                    'action': 'heartbeat',
+                    'port': self.port,
+                    'current_players': len(self.clients),
+                    'status': 'online'
+                }
+
+                central_socket.send(json.dumps(heartbeat_info).encode('utf-8'))
+                central_socket.close()
+
+            except Exception as e:
+                print(f"Heartbeat failed: {e}")
+
+            time.sleep(30)
+
+    def accept_clients(self):
+        while self.running:
+            try:
+                client_socket, address = self.server_socket.accept()
+                print(f"New connection from {address}")
+
+                client_thread = threading.Thread(target=self.handle_client, args=(client_socket, address))
+                client_thread.daemon = True
+                client_thread.start()
+
+            except Exception as e:
+                if self.running:
+                    print(f"Error accepting client: {e}")
+
+    def handle_client(self, client_socket, address):
+        try:
+            welcome_msg = {
+                'type': 'welcome',
+                'message': 'Connected to game server',
+                'max_players': self.max_players,
+                'requires_password': self.password is not None
+            }
+            client_socket.send(json.dumps(welcome_msg).encode('utf-8'))
+
+            if self.password:
+                auth_msg = json.loads(client_socket.recv(1024).decode('utf-8'))
+                if auth_msg.get('password') != self.password:
+                    error_msg = {'type': 'error', 'message': 'Invalid password'}
+                    client_socket.send(json.dumps(error_msg).encode('utf-8'))
+                    client_socket.close()
+                    return
+
+            client_info = {
+                'socket': client_socket,
+                'address': address,
+                'joined_at': datetime.now()
+            }
+            self.clients.append(client_info)
+
+            success_msg = {
+                'type': 'success',
+                'message': f'Successfully joined server! Players: {len(self.clients)}/{self.max_players}'
+            }
+            client_socket.send(json.dumps(success_msg).encode('utf-8'))
+
+            self.broadcast_player_count()
+
+            while self.running:
+                try:
+                    data = client_socket.recv(1024)
+                    if not data:
+                        break
+
+                    message = json.loads(data.decode('utf-8'))
+                    if message.get('type') == 'chat':
+                        self.broadcast_chat(message, address)
+
+                except:
+                    break
+
+        except Exception as e:
+            print(f"Error handling client {address}: {e}")
+        finally:
+            self.clients = [c for c in self.clients if c['socket'] != client_socket]
+            self.broadcast_player_count()
+            client_socket.close()
+
+    def broadcast_player_count(self):
+        update_msg = {
+            'type': 'player_count',
+            'count': len(self.clients),
+            'max_players': self.max_players
         }
-    })
+
+        for client in self.clients:
+            try:
+                client['socket'].send(json.dumps(update_msg).encode('utf-8'))
+            except:
+                continue
+
+    def broadcast_chat(self, message, sender_address):
+        chat_msg = {
+            'type': 'chat',
+            'message': message['message'],
+            'sender': str(sender_address),
+            'timestamp': datetime.now().strftime("%H:%M:%S")
+        }
+
+        for client in self.clients:
+            try:
+                client['socket'].send(json.dumps(chat_msg).encode('utf-8'))
+            except:
+                continue
+
+    def stop_server(self):
+        self.running = False
+
+        disconnect_msg = {'type': 'disconnect', 'message': 'Server is shutting down'}
+        for client in self.clients:
+            try:
+                client['socket'].send(json.dumps(disconnect_msg).encode('utf-8'))
+                client['socket'].close()
+            except:
+                continue
+
+        if self.server_socket:
+            self.server_socket.close()
+
+        try:
+            central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            central_socket.connect(('service-zopk.onrender.com', 5555))
+
+            unregister_info = {
+                'action': 'unregister',
+                'port': self.port
+            }
+
+            central_socket.send(json.dumps(unregister_info).encode('utf-8'))
+            central_socket.close()
+
+        except Exception as e:
+            print(f"Failed to unregister from central server: {e}")
+
+        print("Server stopped")
 
 
-if __name__ == '__main__':
-    # Start background cleanup thread
-    cleanup_thread = threading.Thread(target=background_cleanup, daemon=True)
-    cleanup_thread.start()
+if __name__ == "__main__":
+    import sys
 
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    if len(sys.argv) > 1:
+        port = int(sys.argv[1])
+        max_players = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+        password = sys.argv[3] if len(sys.argv) > 3 else None
+    else:
+        port = 5555
+        max_players = 4
+        password = None
+
+    server = GameServer(port=port, max_players=max_players, password=password)
+
+    try:
+        if server.start_server():
+            print("Press Ctrl+C to stop the server")
+            while server.running:
+                time.sleep(1)
+        else:
+            print("Failed to start server")
+    except KeyboardInterrupt:
+        print("\nStopping server...")
+        server.stop_server()
