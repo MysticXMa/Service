@@ -1,9 +1,12 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+from tkinter import ttk, messagebox, scrolledtext, simpledialog
 import socket
 import json
 import threading
 import time
+import subprocess
+import sys
+
 
 class ModernServerBrowser:
     def __init__(self, root):
@@ -37,97 +40,43 @@ class ModernServerBrowser:
         self.hosted_server = None
 
         self.setup_styles()
-
         self.create_widgets()
-
         self.refresh_servers()
 
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
 
-        style.configure('Modern.TFrame',
-                        background=self.colors['bg_primary'])
-
-        style.configure('Card.TFrame',
-                        background=self.colors['bg_secondary'],
-                        relief='raised',
-                        borderwidth=1)
-
-        style.configure('Title.TLabel',
-                        background=self.colors['bg_primary'],
-                        foreground=self.colors['text_primary'],
+        style.configure('Modern.TFrame', background=self.colors['bg_primary'])
+        style.configure('Card.TFrame', background=self.colors['bg_secondary'], relief='raised', borderwidth=1)
+        style.configure('Title.TLabel', background=self.colors['bg_primary'], foreground=self.colors['text_primary'],
                         font=('Segoe UI', 18, 'bold'))
-
-        style.configure('Subtitle.TLabel',
-                        background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_primary'],
-                        font=('Segoe UI', 12, 'bold'))
-
-        style.configure('Body.TLabel',
-                        background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_primary'],
+        style.configure('Subtitle.TLabel', background=self.colors['bg_secondary'],
+                        foreground=self.colors['text_primary'], font=('Segoe UI', 12, 'bold'))
+        style.configure('Body.TLabel', background=self.colors['bg_secondary'], foreground=self.colors['text_primary'],
                         font=('Segoe UI', 10))
-
-        style.configure('Muted.TLabel',
-                        background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_muted'],
+        style.configure('Muted.TLabel', background=self.colors['bg_secondary'], foreground=self.colors['text_muted'],
                         font=('Segoe UI', 9))
-
-        style.configure('Accent.TButton',
-                        background=self.colors['accent'],
-                        foreground=self.colors['text_primary'],
-                        borderwidth=0,
-                        focuscolor='none',
-                        font=('Segoe UI', 10, 'bold'))
-
+        style.configure('Accent.TButton', background=self.colors['accent'], foreground=self.colors['text_primary'],
+                        borderwidth=0, focuscolor='none', font=('Segoe UI', 10, 'bold'))
         style.map('Accent.TButton',
-                  background=[('active', self.colors['accent_hover']),
-                              ('pressed', self.colors['accent_hover'])])
-
-        style.configure('Secondary.TButton',
-                        background=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'],
-                        borderwidth=0,
-                        focuscolor='none',
-                        font=('Segoe UI', 9))
-
+                  background=[('active', self.colors['accent_hover']), ('pressed', self.colors['accent_hover'])])
+        style.configure('Secondary.TButton', background=self.colors['bg_tertiary'],
+                        foreground=self.colors['text_primary'], borderwidth=0, focuscolor='none', font=('Segoe UI', 9))
         style.map('Secondary.TButton',
-                  background=[('active', self.colors['accent']),
-                              ('pressed', self.colors['accent'])])
-
-        style.configure('Modern.Treeview',
-                        background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_primary'],
-                        fieldbackground=self.colors['bg_secondary'],
-                        borderwidth=0,
-                        rowheight=25)
-
-        style.configure('Modern.Treeview.Heading',
-                        background=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'],
-                        borderwidth=0,
-                        font=('Segoe UI', 10, 'bold'))
-
-        style.map('Modern.Treeview',
-                  background=[('selected', self.colors['accent'])])
-
-        style.configure('Modern.TEntry',
-                        fieldbackground=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'],
-                        borderwidth=1,
-                        relief='solid')
-
-        style.configure('Modern.TCombobox',
-                        fieldbackground=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'],
-                        background=self.colors['bg_tertiary'])
-
-        style.configure('Modern.Vertical.TScrollbar',
-                        background=self.colors['bg_tertiary'],
-                        troughcolor=self.colors['bg_primary'],
-                        borderwidth=0,
-                        arrowsize=12)
+                  background=[('active', self.colors['accent']), ('pressed', self.colors['accent'])])
+        style.configure('Modern.Treeview', background=self.colors['bg_secondary'],
+                        foreground=self.colors['text_primary'], fieldbackground=self.colors['bg_secondary'],
+                        borderwidth=0, rowheight=25)
+        style.configure('Modern.Treeview.Heading', background=self.colors['bg_tertiary'],
+                        foreground=self.colors['text_primary'], borderwidth=0, font=('Segoe UI', 10, 'bold'))
+        style.map('Modern.Treeview', background=[('selected', self.colors['accent'])])
+        style.configure('Modern.TEntry', fieldbackground=self.colors['bg_tertiary'],
+                        foreground=self.colors['text_primary'], borderwidth=1, relief='solid')
+        style.configure('Modern.TCombobox', fieldbackground=self.colors['bg_tertiary'],
+                        foreground=self.colors['text_primary'], background=self.colors['bg_tertiary'])
+        style.configure('Modern.Vertical.TScrollbar', background=self.colors['bg_tertiary'],
+                        troughcolor=self.colors['bg_primary'], borderwidth=0, arrowsize=12)
 
     def create_widgets(self):
         main_container = ttk.Frame(self.root, style='Modern.TFrame')
@@ -160,12 +109,11 @@ class ModernServerBrowser:
         title_label = ttk.Label(title_frame, text="Game Server Browser", style='Title.TLabel')
         title_label.pack(anchor=tk.W)
 
-        subtitle_label = ttk.Label(title_frame, text="Discover and join multiplayer game servers",
-                                   style='Muted.TLabel')
+        subtitle_label = ttk.Label(title_frame, text="Connected to: service-zopk.onrender.com", style='Muted.TLabel')
         subtitle_label.pack(anchor=tk.W, pady=(2, 0))
 
-        refresh_btn = ttk.Button(header_frame, text="🔄 Refresh",
-                                 command=self.refresh_servers, style='Secondary.TButton')
+        refresh_btn = ttk.Button(header_frame, text="🔄 Refresh", command=self.refresh_servers,
+                                 style='Secondary.TButton')
         refresh_btn.pack(side=tk.RIGHT, padx=(10, 0))
 
     def create_server_list(self, parent):
@@ -183,8 +131,7 @@ class ModernServerBrowser:
         self.server_count_label = server_count_label
 
         columns = ('name', 'players', 'status', 'password', 'host')
-        self.server_tree = ttk.Treeview(list_card, columns=columns, show='headings',
-                                        style='Modern.Treeview', height=15)
+        self.server_tree = ttk.Treeview(list_card, columns=columns, show='headings', style='Modern.Treeview', height=15)
 
         column_config = {
             'name': {'text': 'Server Name', 'width': 200, 'anchor': tk.W},
@@ -207,8 +154,8 @@ class ModernServerBrowser:
 
         self.server_tree.bind('<Double-1>', self.on_server_double_click)
 
-        connect_btn = ttk.Button(list_card, text="Connect to Server",
-                                 command=self.on_connect_click, style='Accent.TButton')
+        connect_btn = ttk.Button(list_card, text="Connect to Server", command=self.on_connect_click,
+                                 style='Accent.TButton')
         connect_btn.pack(fill=tk.X, pady=(12, 0))
 
     def create_controls_panel(self, parent):
@@ -231,8 +178,8 @@ class ModernServerBrowser:
         players_frame = ttk.Frame(settings_frame, style='Card.TFrame')
         players_frame.pack(fill=tk.X, pady=(0, 8))
         ttk.Label(players_frame, text="Max Players:", style='Body.TLabel').pack(side=tk.LEFT)
-        self.max_players_combo = ttk.Combobox(players_frame, values=[2, 4, 6, 8, 10, 16, 32],
-                                              width=8, style='Modern.TCombobox', state='readonly')
+        self.max_players_combo = ttk.Combobox(players_frame, values=[2, 4, 6, 8, 10, 16, 32], width=8,
+                                              style='Modern.TCombobox', state='readonly')
         self.max_players_combo.pack(side=tk.RIGHT)
         self.max_players_combo.set("8")
 
@@ -242,8 +189,8 @@ class ModernServerBrowser:
         self.password_entry = ttk.Entry(password_frame, width=15, show="•", style='Modern.TEntry')
         self.password_entry.pack(side=tk.RIGHT)
 
-        self.host_btn = ttk.Button(controls_card, text="Start Hosting",
-                                   command=self.toggle_hosting, style='Accent.TButton')
+        self.host_btn = ttk.Button(controls_card, text="Start Hosting", command=self.toggle_hosting,
+                                   style='Accent.TButton')
         self.host_btn.pack(fill=tk.X)
 
         status_card = ttk.Frame(parent, style='Card.TFrame')
@@ -252,12 +199,11 @@ class ModernServerBrowser:
 
         ttk.Label(status_card, text="Connection Status", style='Subtitle.TLabel').pack(anchor=tk.W, pady=(0, 8))
 
-        self.status_label = ttk.Label(status_card, text="● Not Connected",
-                                      style='Body.TLabel', foreground=self.colors['error'])
+        self.status_label = ttk.Label(status_card, text="● Not Connected", style='Body.TLabel',
+                                      foreground=self.colors['error'])
         self.status_label.pack(anchor=tk.W)
 
-        self.server_info_label = ttk.Label(status_card, text="No server selected",
-                                           style='Muted.TLabel')
+        self.server_info_label = ttk.Label(status_card, text="No server selected", style='Muted.TLabel')
         self.server_info_label.pack(anchor=tk.W, pady=(2, 0))
 
     def create_chat_panel(self, parent):
@@ -284,20 +230,20 @@ class ModernServerBrowser:
 
     def refresh_servers(self):
         try:
-            # Clear existing servers
             for item in self.server_tree.get_children():
                 self.server_tree.delete(item)
 
             central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            central_socket.settimeout(5)
-            central_socket.connect(('service-zopk.onrender.com', 5555))
+            central_socket.settimeout(10)
+
+            # Connect to Render central server on port 10000 (Render's default)
+            central_socket.connect(('service-zopk.onrender.com', 10000))
 
             request = {'action': 'get_servers'}
             central_socket.send(json.dumps(request).encode('utf-8'))
 
             response = central_socket.recv(4096).decode('utf-8')
             servers = json.loads(response)
-
             central_socket.close()
 
             for server in servers:
@@ -311,10 +257,10 @@ class ModernServerBrowser:
                     status_text,
                     password_text,
                     f"{server['host']}:{server['port']}"
-                ), tags=(server['port'],))
+                ))
 
             self.server_count_label.config(text=f"{len(servers)} servers available")
-            self.log_message(f"✓ Refreshed server list - found {len(servers)} servers")
+            self.log_message(f"✓ Refreshed server list - found {len(servers)} servers via service-zopk.onrender.com")
 
         except Exception as e:
             self.log_message(f"✗ Error refreshing servers: {e}")
@@ -346,7 +292,7 @@ class ModernServerBrowser:
             self.connect_to_server(host_port, password)
 
     def ask_for_password(self):
-        return tk.simpledialog.askstring("Server Password", "This server requires a password:", show='•')
+        return simpledialog.askstring("Server Password", "This server requires a password:", show='•')
 
     def connect_to_server(self, host_port, password=None):
         try:
@@ -354,7 +300,7 @@ class ModernServerBrowser:
             port = int(port)
 
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.settimeout(5)
+            self.server_socket.settimeout(10)
             self.server_socket.connect((host, port))
 
             welcome_data = self.server_socket.recv(1024).decode('utf-8')
@@ -379,7 +325,7 @@ class ModernServerBrowser:
                 self.current_server = host_port
                 self.update_status(f"● Connected to {host_port}", self.colors['success'])
                 self.server_info_label.config(
-                    text=f"Players: {welcome_msg.get('current_players', '?')}/{welcome_msg.get('max_players', '?')}")
+                    text=f"Players: {len(self.get_current_players())}/{welcome_msg.get('max_players', '?')}")
 
                 self.listen_thread = threading.Thread(target=self.listen_for_messages, daemon=True)
                 self.listen_thread.start()
@@ -387,8 +333,12 @@ class ModernServerBrowser:
                 self.log_message("✓ Successfully joined the server!")
 
         except Exception as e:
-            self.log_message(f"✗ Failed to connect: {e}")
+            self.log_message(f"✗ Failed to connect to {host_port}: {e}")
             messagebox.showerror("Connection Error", f"Failed to connect to server: {e}")
+
+    def get_current_players(self):
+        # This would typically come from the server, but for now return empty list
+        return []
 
     def listen_for_messages(self):
         while self.connected:
@@ -409,7 +359,9 @@ class ModernServerBrowser:
                     self.disconnect_from_server()
                     break
 
-            except:
+            except Exception as e:
+                if self.connected:
+                    self.log_message(f"✗ Connection error: {e}")
                 break
 
     def disconnect_from_server(self):
@@ -438,9 +390,6 @@ class ModernServerBrowser:
             max_players = int(self.max_players_combo.get())
             password = self.password_entry.get() or None
 
-            import subprocess
-            import sys
-
             cmd = [sys.executable, 'server.py', str(port), str(max_players)]
             if password:
                 cmd.append(password)
@@ -450,6 +399,9 @@ class ModernServerBrowser:
             self.host_btn.config(text="Stop Hosting")
             self.log_message(f"✓ Started hosting server on port {port}")
             self.update_status(f"● Hosting on port {port}", self.colors['success'])
+
+            # Wait a moment for server to start, then refresh list
+            self.root.after(2000, self.refresh_servers)
 
         except Exception as e:
             self.log_message(f"✗ Failed to start hosting: {e}")
