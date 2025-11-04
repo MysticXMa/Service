@@ -1,9 +1,0 @@
-fastapi
-uvicorn
-websockets
-opencv-python
-Pillow
-mss
-pyautogui
-screeninfo
-python-multipart
