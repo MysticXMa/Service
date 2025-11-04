@@ -1,453 +1,538 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, simpledialog
-import socket
-import json
+from tkinter import ttk, messagebox
+import requests
 import threading
+import base64
+from PIL import Image, ImageTk
+import io
 import time
-import subprocess
-import sys
+import uuid
 
 
-class ModernServerBrowser:
+class RemoteScreenWindow:
+    def __init__(self, parent, session_id, device_id, backend_url):
+        self.window = tk.Toplevel(parent)
+        self.window.title(f"Remote Screen - {device_id}")
+        self.window.geometry("800x600")
+        self.window.configure(bg='#1e1e1e')
+
+        self.session_id = session_id
+        self.device_id = device_id
+        self.backend_url = backend_url
+        self.streaming_active = True
+
+        screen_frame = ttk.Frame(self.window)
+        screen_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.screen_label = tk.Label(
+            screen_frame,
+            text="🔄 Connecting to remote screen...",
+            bg='#2d2d2d',
+            fg='#ffffff',
+            font=('Arial', 12),
+            justify=tk.CENTER
+        )
+        self.screen_label.pack(fill=tk.BOTH, expand=True)
+
+        controls_frame = ttk.Frame(screen_frame)
+        controls_frame.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Button(
+            controls_frame,
+            text="⌨️ Send Ctrl+Alt+Del",
+            command=self.send_special_key
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(
+            controls_frame,
+            text="🔒 Disconnect",
+            command=self.disconnect
+        ).pack(side=tk.LEFT)
+
+        self.start_screen_stream()
+
+        self.window.protocol("WM_DELETE_WINDOW", self.disconnect)
+
+    def start_screen_stream(self):
+        def stream_thread():
+            while self.streaming_active:
+                try:
+                    response = requests.get(
+                        f"{self.backend_url}/screen",
+                        params={"session_id": self.session_id},
+                        timeout=5
+                    )
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        screenshot_data = data.get('screenshot')
+
+                        if screenshot_data:
+                            image_data = base64.b64decode(screenshot_data)
+                            image = Image.open(io.BytesIO(image_data))
+
+                            display_width = 780
+                            display_height = 500
+                            image = image.resize((display_width, display_height), Image.Resampling.LANCZOS)
+
+                            photo = ImageTk.PhotoImage(image)
+                            self.window.after(0, lambda: self.update_screen_display(photo))
+                        else:
+                            self.window.after(0, lambda: self.screen_label.config(
+                                text="🔄 Waiting for screen data..."
+                            ))
+                    time.sleep(0.1)
+                except Exception as e:
+                    if self.streaming_active:
+                        self.window.after(0, lambda: self.screen_label.config(
+                            text=f"❌ Connection error: {str(e)}"
+                        ))
+                        time.sleep(1)
+                    else:
+                        break
+
+        threading.Thread(target=stream_thread, daemon=True).start()
+
+    def update_screen_display(self, photo_image):
+        self.screen_label.config(image=photo_image, text="")
+        self.screen_label.image = photo_image
+
+    def send_special_key(self):
+        try:
+            requests.post(
+                f"{self.backend_url}/send_keys",
+                json={"session_id": self.session_id, "keys": "ctrl_alt_del"},
+                timeout=5
+            )
+        except:
+            pass
+
+    def disconnect(self):
+        self.streaming_active = False
+        try:
+            requests.post(
+                f"{self.backend_url}/disconnect",
+                json={"session_id": self.session_id},
+                timeout=5
+            )
+        except:
+            pass
+        self.window.destroy()
+
+
+class ParsecLikeApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Game Server Browser")
-        self.root.geometry("1000x750")
-        self.root.configure(bg='#1a1a1a')
+        self.root.title("Remote Desktop - Screen Sharing")
+        self.root.geometry("1000x700")
+        self.root.configure(bg='#1e1e1e')
 
-        self.root.minsize(900, 650)
+        self.backend_url = "http://localhost:5000"
+        self.my_servers = []
+        self.remote_windows = []
 
-        self.colors = {
-            'bg_primary': '#1a1a1a',
-            'bg_secondary': '#2d2d2d',
-            'bg_tertiary': '#3d3d3d',
-            'accent': '#4a90e2',
-            'accent_hover': '#357abd',
-            'success': '#27ae60',
-            'warning': '#e67e22',
-            'error': '#e74c3c',
-            'text_primary': '#ffffff',
-            'text_secondary': '#b3b3b3',
-            'text_muted': '#888888',
-            'border': '#404040'
-        }
+        self.setup_ui()
 
-        self.current_server = None
-        self.connected = False
-        self.server_socket = None
-        self.listen_thread = None
-        self.hosting = False
-        self.hosted_server = None
-
+    def setup_ui(self):
         self.setup_styles()
-        self.create_widgets()
+
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+
+        header_frame = ttk.Frame(main_container, style='Header.TFrame')
+        header_frame.pack(fill=tk.X, pady=(0, 20))
+
+        title_label = tk.Label(
+            header_frame,
+            text="🔗 Remote Desktop Hub",
+            font=('Arial', 20, 'bold'),
+            fg='#ffffff',
+            bg='#2d2d2d'
+        )
+        title_label.pack(side=tk.LEFT)
+
+        self.status_label = tk.Label(
+            header_frame,
+            text="🟢 Connected",
+            font=('Arial', 11, 'bold'),
+            fg='#28a745',
+            bg='#2d2d2d'
+        )
+        self.status_label.pack(side=tk.RIGHT)
+
+        content_frame = ttk.Frame(main_container)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        left_panel = ttk.Frame(content_frame, width=300)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 15))
+        left_panel.pack_propagate(False)
+
+        create_server_frame = ttk.LabelFrame(
+            left_panel,
+            text="🚀 Create Server",
+            padding=15,
+            style='Card.TLabelframe'
+        )
+        create_server_frame.pack(fill=tk.X, pady=(0, 15))
+
+        server_name_label = tk.Label(
+            create_server_frame,
+            text="Server Name:",
+            font=('Arial', 9, 'bold'),
+            fg='#cccccc',
+            bg='#2d2d2d'
+        )
+        server_name_label.pack(anchor=tk.W, pady=(0, 5))
+
+        self.server_name_entry = ttk.Entry(
+            create_server_frame,
+            font=('Arial', 10),
+            style='Custom.TEntry'
+        )
+        self.server_name_entry.pack(fill=tk.X, pady=(0, 10))
+        self.server_name_entry.insert(0, f"My Server {int(time.time()) % 10000}")
+
+        password_label = tk.Label(
+            create_server_frame,
+            text="Password (optional):",
+            font=('Arial', 9, 'bold'),
+            fg='#cccccc',
+            bg='#2d2d2d'
+        )
+        password_label.pack(anchor=tk.W, pady=(0, 5))
+
+        self.server_password_entry = ttk.Entry(
+            create_server_frame,
+            font=('Arial', 10),
+            style='Custom.TEntry',
+            show="*"
+        )
+        self.server_password_entry.pack(fill=tk.X, pady=(0, 15))
+
+        ttk.Button(
+            create_server_frame,
+            text="🖥️ Start Server",
+            command=self.create_server,
+            style='Success.TButton'
+        ).pack(fill=tk.X)
+
+        my_servers_frame = ttk.LabelFrame(
+            left_panel,
+            text="📋 My Servers",
+            padding=10,
+            style='Card.TLabelframe'
+        )
+        my_servers_frame.pack(fill=tk.BOTH, expand=True)
+
+        list_frame = ttk.Frame(my_servers_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.my_servers_listbox = tk.Listbox(
+            list_frame,
+            bg='#3d3d3d',
+            fg='#ffffff',
+            selectbackground='#007acc',
+            selectforeground='#ffffff',
+            font=('Arial', 9),
+            relief='flat',
+            highlightthickness=0
+        )
+
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL)
+        self.my_servers_listbox.configure(yscrollcommand=scrollbar.set)
+        scrollbar.configure(command=self.my_servers_listbox.yview)
+
+        self.my_servers_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.my_servers_listbox.bind('<Double-Button-1>', self.on_my_server_double_click)
+
+        servers_buttons_frame = ttk.Frame(my_servers_frame)
+        servers_buttons_frame.pack(fill=tk.X, pady=(10, 0))
+
+        ttk.Button(
+            servers_buttons_frame,
+            text="🛑 Stop Server",
+            command=self.stop_server,
+            style='Danger.TButton'
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+
+        ttk.Button(
+            servers_buttons_frame,
+            text="📋 Copy ID",
+            command=self.copy_server_id,
+            style='Secondary.TButton'
+        ).pack(side=tk.RIGHT, fill=tk.X, expand=True)
+
+        right_panel = ttk.Frame(content_frame)
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        available_servers_frame = ttk.LabelFrame(
+            right_panel,
+            text="🌐 Available Servers",
+            padding=15,
+            style='Card.TLabelframe'
+        )
+        available_servers_frame.pack(fill=tk.BOTH, expand=True)
+
+        servers_list_frame = ttk.Frame(available_servers_frame)
+        servers_list_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.servers_tree = ttk.Treeview(
+            servers_list_frame,
+            columns=('name', 'status', 'password', 'id'),
+            show='headings',
+            height=15
+        )
+
+        self.servers_tree.heading('name', text='Server Name')
+        self.servers_tree.heading('status', text='Status')
+        self.servers_tree.heading('password', text='Protection')
+        self.servers_tree.heading('id', text='ID')
+
+        self.servers_tree.column('name', width=200)
+        self.servers_tree.column('status', width=100)
+        self.servers_tree.column('password', width=100)
+        self.servers_tree.column('id', width=150)
+
+        style = ttk.Style()
+        style.configure("Treeview",
+                        background="#3d3d3d",
+                        foreground="white",
+                        fieldbackground="#3d3d3d")
+        style.configure("Treeview.Heading",
+                        background="#2d2d2d",
+                        foreground="white")
+
+        tree_scrollbar = ttk.Scrollbar(servers_list_frame, orient=tk.VERTICAL)
+        self.servers_tree.configure(yscrollcommand=tree_scrollbar.set)
+        tree_scrollbar.configure(command=self.servers_tree.yview)
+
+        self.servers_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.servers_tree.bind('<Double-Button-1>', self.on_server_double_click)
+
+        connect_frame = ttk.Frame(available_servers_frame)
+        connect_frame.pack(fill=tk.X, pady=(15, 0))
+
+        password_connect_label = tk.Label(
+            connect_frame,
+            text="Password (if required):",
+            font=('Arial', 9, 'bold'),
+            fg='#cccccc',
+            bg='#2d2d2d'
+        )
+        password_connect_label.pack(anchor=tk.W, pady=(0, 5))
+
+        self.connect_password_entry = ttk.Entry(
+            connect_frame,
+            font=('Arial', 10),
+            style='Custom.TEntry',
+            show="*"
+        )
+        self.connect_password_entry.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Button(
+            connect_frame,
+            text="🔌 Connect to Selected Server",
+            command=self.connect_to_server,
+            style='Accent.TButton'
+        ).pack(fill=tk.X)
+
         self.refresh_servers()
+        self.auto_refresh_servers()
 
     def setup_styles(self):
         style = ttk.Style()
         style.theme_use('clam')
+        bg_color = '#1e1e1e'
+        card_bg = '#2d2d2d'
+        accent_color = '#007acc'
+        success_color = '#28a745'
+        danger_color = '#dc3545'
 
-        style.configure('Modern.TFrame', background=self.colors['bg_primary'])
-        style.configure('Card.TFrame', background=self.colors['bg_secondary'], relief='raised', borderwidth=1)
-        style.configure('Title.TLabel', background=self.colors['bg_primary'], foreground=self.colors['text_primary'],
-                        font=('Segoe UI', 18, 'bold'))
-        style.configure('Subtitle.TLabel', background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_primary'], font=('Segoe UI', 12, 'bold'))
-        style.configure('Body.TLabel', background=self.colors['bg_secondary'], foreground=self.colors['text_primary'],
-                        font=('Segoe UI', 10))
-        style.configure('Muted.TLabel', background=self.colors['bg_secondary'], foreground=self.colors['text_muted'],
-                        font=('Segoe UI', 9))
-        style.configure('Accent.TButton', background=self.colors['accent'], foreground=self.colors['text_primary'],
-                        borderwidth=0, focuscolor='none', font=('Segoe UI', 10, 'bold'))
-        style.map('Accent.TButton',
-                  background=[('active', self.colors['accent_hover']), ('pressed', self.colors['accent_hover'])])
-        style.configure('Secondary.TButton', background=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'], borderwidth=0, focuscolor='none', font=('Segoe UI', 9))
-        style.map('Secondary.TButton',
-                  background=[('active', self.colors['accent']), ('pressed', self.colors['accent'])])
-        style.configure('Modern.Treeview', background=self.colors['bg_secondary'],
-                        foreground=self.colors['text_primary'], fieldbackground=self.colors['bg_secondary'],
-                        borderwidth=0, rowheight=25)
-        style.configure('Modern.Treeview.Heading', background=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'], borderwidth=0, font=('Segoe UI', 10, 'bold'))
-        style.map('Modern.Treeview', background=[('selected', self.colors['accent'])])
-        style.configure('Modern.TEntry', fieldbackground=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'], borderwidth=1, relief='solid')
-        style.configure('Modern.TCombobox', fieldbackground=self.colors['bg_tertiary'],
-                        foreground=self.colors['text_primary'], background=self.colors['bg_tertiary'])
-        style.configure('Modern.Vertical.TScrollbar', background=self.colors['bg_tertiary'],
-                        troughcolor=self.colors['bg_primary'], borderwidth=0, arrowsize=12)
+        style.configure('TFrame', background=bg_color)
+        style.configure('Header.TFrame', background=card_bg)
+        style.configure('Card.TLabelframe', background=card_bg, foreground='white', bordercolor='#444444')
+        style.configure('Card.TLabelframe.Label', background=card_bg, foreground='white')
+        style.configure('Accent.TButton', background=accent_color, foreground='white')
+        style.configure('Success.TButton', background=success_color, foreground='white')
+        style.configure('Secondary.TButton', background='#495057', foreground='white')
+        style.configure('Danger.TButton', background=danger_color, foreground='white')
+        style.configure('Custom.TEntry', fieldbackground='#3d3d3d', foreground='white', bordercolor='#555555')
 
-    def create_widgets(self):
-        main_container = ttk.Frame(self.root, style='Modern.TFrame')
-        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+    def create_server(self):
+        server_name = self.server_name_entry.get().strip()
+        if not server_name:
+            messagebox.showerror("Error", "Please enter a server name")
+            return
 
-        self.create_header(main_container)
+        password = self.server_password_entry.get().strip()
 
-        content_frame = ttk.Frame(main_container, style='Modern.TFrame')
-        content_frame.pack(fill=tk.BOTH, expand=True, pady=(20, 0))
+        def create_thread():
+            try:
+                data = {"name": server_name}
+                if password:
+                    data["password"] = password
 
-        left_panel = ttk.Frame(content_frame, style='Modern.TFrame')
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+                response = requests.post(f"{self.backend_url}/share", json=data, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    device_id = data.get('device_id')
+                    self.root.after(0, lambda: self.on_server_created(device_id, server_name, password))
+                    self.refresh_servers()
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to create server"))
+            except requests.exceptions.RequestException as e:
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Cannot connect to backend: {str(e)}"))
 
-        self.create_server_list(left_panel)
+        threading.Thread(target=create_thread, daemon=True).start()
 
-        right_panel = ttk.Frame(content_frame, style='Modern.TFrame')
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False, padx=(10, 0))
-        right_panel.configure(width=350)
-
-        self.create_controls_panel(right_panel)
-        self.create_chat_panel(right_panel)
-
-    def create_header(self, parent):
-        header_frame = ttk.Frame(parent, style='Modern.TFrame')
-        header_frame.pack(fill=tk.X, pady=(0, 20))
-
-        title_frame = ttk.Frame(header_frame, style='Modern.TFrame')
-        title_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-        title_label = ttk.Label(title_frame, text="Game Server Browser", style='Title.TLabel')
-        title_label.pack(anchor=tk.W)
-
-        subtitle_label = ttk.Label(title_frame, text="Connected to: service-zopk.onrender.com", style='Muted.TLabel')
-        subtitle_label.pack(anchor=tk.W, pady=(2, 0))
-
-        refresh_btn = ttk.Button(header_frame, text="🔄 Refresh", command=self.refresh_servers,
-                                 style='Secondary.TButton')
-        refresh_btn.pack(side=tk.RIGHT, padx=(10, 0))
-
-    def create_server_list(self, parent):
-        list_card = ttk.Frame(parent, style='Card.TFrame')
-        list_card.pack(fill=tk.BOTH, expand=True)
-        list_card.configure(padding=15)
-
-        header_frame = ttk.Frame(list_card, style='Card.TFrame')
-        header_frame.pack(fill=tk.X, pady=(0, 12))
-
-        ttk.Label(header_frame, text="Available Servers", style='Subtitle.TLabel').pack(side=tk.LEFT)
-
-        server_count_label = ttk.Label(header_frame, text="0 servers", style='Muted.TLabel')
-        server_count_label.pack(side=tk.RIGHT)
-        self.server_count_label = server_count_label
-
-        columns = ('name', 'players', 'status', 'password', 'host')
-        self.server_tree = ttk.Treeview(list_card, columns=columns, show='headings', style='Modern.Treeview', height=15)
-
-        column_config = {
-            'name': {'text': 'Server Name', 'width': 200, 'anchor': tk.W},
-            'players': {'text': 'Players', 'width': 80, 'anchor': tk.CENTER},
-            'status': {'text': 'Status', 'width': 80, 'anchor': tk.CENTER},
-            'password': {'text': 'Password', 'width': 80, 'anchor': tk.CENTER},
-            'host': {'text': 'Host', 'width': 120, 'anchor': tk.W}
+    def on_server_created(self, device_id, server_name, password):
+        server_info = {
+            'id': device_id,
+            'name': server_name,
+            'password': bool(password)
         }
+        self.my_servers.append(server_info)
+        self.update_my_servers_list()
 
-        for col, config in column_config.items():
-            self.server_tree.heading(col, text=config['text'])
-            self.server_tree.column(col, width=config['width'], anchor=config['anchor'])
-
-        self.server_tree.pack(fill=tk.BOTH, expand=True)
-
-        scrollbar = ttk.Scrollbar(list_card, orient=tk.VERTICAL, command=self.server_tree.yview,
-                                  style='Modern.Vertical.TScrollbar')
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.server_tree.configure(yscrollcommand=scrollbar.set)
-
-        self.server_tree.bind('<Double-1>', self.on_server_double_click)
-
-        connect_btn = ttk.Button(list_card, text="Connect to Server", command=self.on_connect_click,
-                                 style='Accent.TButton')
-        connect_btn.pack(fill=tk.X, pady=(12, 0))
-
-    def create_controls_panel(self, parent):
-        controls_card = ttk.Frame(parent, style='Card.TFrame')
-        controls_card.pack(fill=tk.X, pady=(0, 15))
-        controls_card.configure(padding=15)
-
-        ttk.Label(controls_card, text="Host Your Server", style='Subtitle.TLabel').pack(anchor=tk.W, pady=(0, 12))
-
-        settings_frame = ttk.Frame(controls_card, style='Card.TFrame')
-        settings_frame.pack(fill=tk.X, pady=(0, 15))
-
-        port_frame = ttk.Frame(settings_frame, style='Card.TFrame')
-        port_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(port_frame, text="Port:", style='Body.TLabel').pack(side=tk.LEFT)
-        self.port_entry = ttk.Entry(port_frame, width=10, style='Modern.TEntry')
-        self.port_entry.pack(side=tk.RIGHT)
-        self.port_entry.insert(0, "5556")
-
-        players_frame = ttk.Frame(settings_frame, style='Card.TFrame')
-        players_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(players_frame, text="Max Players:", style='Body.TLabel').pack(side=tk.LEFT)
-        self.max_players_combo = ttk.Combobox(players_frame, values=[2, 4, 6, 8, 10, 16, 32], width=8,
-                                              style='Modern.TCombobox', state='readonly')
-        self.max_players_combo.pack(side=tk.RIGHT)
-        self.max_players_combo.set("8")
-
-        password_frame = ttk.Frame(settings_frame, style='Card.TFrame')
-        password_frame.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(password_frame, text="Password:", style='Body.TLabel').pack(side=tk.LEFT)
-        self.password_entry = ttk.Entry(password_frame, width=15, show="•", style='Modern.TEntry')
-        self.password_entry.pack(side=tk.RIGHT)
-
-        self.host_btn = ttk.Button(controls_card, text="Start Hosting", command=self.toggle_hosting,
-                                   style='Accent.TButton')
-        self.host_btn.pack(fill=tk.X)
-
-        status_card = ttk.Frame(parent, style='Card.TFrame')
-        status_card.pack(fill=tk.X)
-        status_card.configure(padding=15)
-
-        ttk.Label(status_card, text="Connection Status", style='Subtitle.TLabel').pack(anchor=tk.W, pady=(0, 8))
-
-        self.status_label = ttk.Label(status_card, text="● Not Connected", style='Body.TLabel',
-                                      foreground=self.colors['error'])
-        self.status_label.pack(anchor=tk.W)
-
-        self.server_info_label = ttk.Label(status_card, text="No server selected", style='Muted.TLabel')
-        self.server_info_label.pack(anchor=tk.W, pady=(2, 0))
-
-    def create_chat_panel(self, parent):
-        chat_card = ttk.Frame(parent, style='Card.TFrame')
-        chat_card.pack(fill=tk.BOTH, expand=True)
-        chat_card.configure(padding=15)
-
-        ttk.Label(chat_card, text="Server Messages", style='Subtitle.TLabel').pack(anchor=tk.W, pady=(0, 8))
-
-        self.chat_area = scrolledtext.ScrolledText(
-            chat_card,
-            bg=self.colors['bg_tertiary'],
-            fg=self.colors['text_primary'],
-            insertbackground=self.colors['text_primary'],
-            wrap=tk.WORD,
-            font=('Segoe UI', 9),
-            padx=10,
-            pady=10,
-            relief='flat',
-            borderwidth=0
+        messagebox.showinfo(
+            "Server Created",
+            f"Server '{server_name}' created successfully!\n\n"
+            f"Server ID: {device_id}\n"
+            f"Password Protected: {'Yes' if password else 'No'}\n\n"
+            "Share the Server ID with others to allow connections."
         )
-        self.chat_area.pack(fill=tk.BOTH, expand=True)
-        self.chat_area.config(state=tk.DISABLED)
 
-    def refresh_servers(self):
-        try:
-            for item in self.server_tree.get_children():
-                self.server_tree.delete(item)
-
-            central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            central_socket.settimeout(10)
-
-            # Connect to Render central server on port 10000 (Render's default)
-            central_socket.connect(('service-zopk.onrender.com', 10000))
-
-            request = {'action': 'get_servers'}
-            central_socket.send(json.dumps(request).encode('utf-8'))
-
-            response = central_socket.recv(4096).decode('utf-8')
-            servers = json.loads(response)
-            central_socket.close()
-
-            for server in servers:
-                players_text = f"{server['current_players']}/{server['max_players']}"
-                password_text = "✓" if server['has_password'] else "✗"
-                status_text = server['status'].capitalize()
-
-                self.server_tree.insert('', tk.END, values=(
-                    server['name'],
-                    players_text,
-                    status_text,
-                    password_text,
-                    f"{server['host']}:{server['port']}"
-                ))
-
-            self.server_count_label.config(text=f"{len(servers)} servers available")
-            self.log_message(f"✓ Refreshed server list - found {len(servers)} servers via service-zopk.onrender.com")
-
-        except Exception as e:
-            self.log_message(f"✗ Error refreshing servers: {e}")
-            messagebox.showerror("Connection Error", f"Failed to refresh server list: {e}")
-
-    def on_server_double_click(self, event):
-        self.on_connect_click()
-
-    def on_connect_click(self):
-        selection = self.server_tree.selection()
+    def stop_server(self):
+        selection = self.my_servers_listbox.curselection()
         if not selection:
-            messagebox.showwarning("No Selection", "Please select a server from the list first.")
+            messagebox.showerror("Error", "Please select a server to stop")
+            return
+
+        server_info = self.my_servers[selection[0]]
+
+        def stop_thread():
+            try:
+                response = requests.post(
+                    f"{self.backend_url}/stop_sharing",
+                    json={"device_id": server_info['id']},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    self.root.after(0, lambda: self.on_server_stopped(server_info['id']))
+                    self.refresh_servers()
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("Error", "Failed to stop server"))
+            except:
+                self.root.after(0, lambda: messagebox.showerror("Error", "Failed to connect to backend"))
+
+        threading.Thread(target=stop_thread, daemon=True).start()
+
+    def on_server_stopped(self, device_id):
+        self.my_servers = [s for s in self.my_servers if s['id'] != device_id]
+        self.update_my_servers_list()
+        messagebox.showinfo("Success", "Server stopped successfully")
+
+    def copy_server_id(self):
+        selection = self.my_servers_listbox.curselection()
+        if not selection:
+            messagebox.showerror("Error", "Please select a server")
+            return
+
+        server_info = self.my_servers[selection[0]]
+        self.root.clipboard_clear()
+        self.root.clipboard_append(server_info['id'])
+        messagebox.showinfo("Copied", f"Server ID '{server_info['id']}' copied to clipboard")
+
+    def update_my_servers_list(self):
+        self.my_servers_listbox.delete(0, tk.END)
+        for server in self.my_servers:
+            status = "🔒" if server['password'] else "🔓"
+            self.my_servers_listbox.insert(tk.END, f"{status} {server['name']} ({server['id']})")
+
+    def on_my_server_double_click(self, event):
+        self.copy_server_id()
+
+    def connect_to_server(self):
+        selection = self.servers_tree.selection()
+        if not selection:
+            messagebox.showerror("Error", "Please select a server to connect to")
             return
 
         item = selection[0]
-        server_values = self.server_tree.item(item)['values']
+        server_id = self.servers_tree.item(item, 'values')[3]
+        password = self.connect_password_entry.get().strip()
 
-        if server_values:
-            host_port = server_values[4]
-            has_password = server_values[3] == "✓"
-
-            if has_password:
-                password = self.ask_for_password()
-                if password is None:
-                    return
-            else:
-                password = None
-
-            self.connect_to_server(host_port, password)
-
-    def ask_for_password(self):
-        return simpledialog.askstring("Server Password", "This server requires a password:", show='•')
-
-    def connect_to_server(self, host_port, password=None):
-        try:
-            host, port = host_port.split(':')
-            port = int(port)
-
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.settimeout(10)
-            self.server_socket.connect((host, port))
-
-            welcome_data = self.server_socket.recv(1024).decode('utf-8')
-            welcome_msg = json.loads(welcome_data)
-
-            if welcome_msg['type'] == 'welcome':
-                self.log_message(f"✓ Connected to server: {welcome_msg['message']}")
-
-                if welcome_msg.get('requires_password') and password:
-                    auth_msg = {'password': password}
-                    self.server_socket.send(json.dumps(auth_msg).encode('utf-8'))
-
-                    auth_response = self.server_socket.recv(1024).decode('utf-8')
-                    auth_result = json.loads(auth_response)
-
-                    if auth_result['type'] == 'error':
-                        self.log_message(f"✗ Authentication failed: {auth_result['message']}")
-                        self.server_socket.close()
-                        return
-
-                self.connected = True
-                self.current_server = host_port
-                self.update_status(f"● Connected to {host_port}", self.colors['success'])
-                self.server_info_label.config(
-                    text=f"Players: {len(self.get_current_players())}/{welcome_msg.get('max_players', '?')}")
-
-                self.listen_thread = threading.Thread(target=self.listen_for_messages, daemon=True)
-                self.listen_thread.start()
-
-                self.log_message("✓ Successfully joined the server!")
-
-        except Exception as e:
-            self.log_message(f"✗ Failed to connect to {host_port}: {e}")
-            messagebox.showerror("Connection Error", f"Failed to connect to server: {e}")
-
-    def get_current_players(self):
-        # This would typically come from the server, but for now return empty list
-        return []
-
-    def listen_for_messages(self):
-        while self.connected:
+        def connect_thread():
             try:
-                data = self.server_socket.recv(1024).decode('utf-8')
-                if not data:
-                    break
+                data = {"device_id": server_id}
+                if password:
+                    data["password"] = password
 
-                message = json.loads(data)
+                response = requests.post(f"{self.backend_url}/connect", json=data, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    session_id = data.get('session_id')
+                    self.root.after(0, lambda: self.on_connect_success(session_id, server_id))
+                else:
+                    error_msg = response.json().get('error', 'Connection failed')
+                    self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
+            except requests.exceptions.RequestException as e:
+                self.root.after(0,
+                                lambda: messagebox.showerror("Connection Error", f"Cannot connect to server: {str(e)}"))
 
-                if message['type'] == 'chat':
-                    self.log_message(f"[{message['timestamp']}] {message['sender']}: {message['message']}")
-                elif message['type'] == 'player_count':
-                    self.log_message(f"↻ Player count: {message['count']}/{message['max_players']}")
-                    self.server_info_label.config(text=f"Players: {message['count']}/{message['max_players']}")
-                elif message['type'] == 'disconnect':
-                    self.log_message(f"⚠ Server: {message['message']}")
-                    self.disconnect_from_server()
-                    break
+        threading.Thread(target=connect_thread, daemon=True).start()
 
-            except Exception as e:
-                if self.connected:
-                    self.log_message(f"✗ Connection error: {e}")
-                break
+    def on_connect_success(self, session_id, device_id):
+        remote_window = RemoteScreenWindow(self.root, session_id, device_id, self.backend_url)
+        self.remote_windows.append(remote_window)
+        messagebox.showinfo("Success", f"Connected to server {device_id}")
 
-    def disconnect_from_server(self):
-        if self.connected:
-            self.connected = False
-            if self.server_socket:
-                self.server_socket.close()
-            self.update_status("● Not Connected", self.colors['error'])
-            self.server_info_label.config(text="No server selected")
-            self.log_message("⚠ Disconnected from server")
+    def on_server_double_click(self, event):
+        self.connect_to_server()
 
-    def update_status(self, text, color=None):
-        self.status_label.config(text=text)
-        if color:
-            self.status_label.config(foreground=color)
+    def refresh_servers(self):
+        def refresh_thread():
+            try:
+                response = requests.get(f"{self.backend_url}/devices", timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    servers = data.get('devices', [])
+                    self.root.after(0, lambda: self.update_servers_list(servers))
+            except:
+                pass
 
-    def toggle_hosting(self):
-        if not self.hosting:
-            self.start_hosting()
-        else:
-            self.stop_hosting()
+        threading.Thread(target=refresh_thread, daemon=True).start()
 
-    def start_hosting(self):
-        try:
-            port = int(self.port_entry.get())
-            max_players = int(self.max_players_combo.get())
-            password = self.password_entry.get() or None
+    def auto_refresh_servers(self):
+        self.refresh_servers()
+        self.root.after(5000, self.auto_refresh_servers)
 
-            cmd = [sys.executable, 'server.py', str(port), str(max_players)]
-            if password:
-                cmd.append(password)
+    def update_servers_list(self, servers):
+        for item in self.servers_tree.get_children():
+            self.servers_tree.delete(item)
 
-            self.hosted_server = subprocess.Popen(cmd)
-            self.hosting = True
-            self.host_btn.config(text="Stop Hosting")
-            self.log_message(f"✓ Started hosting server on port {port}")
-            self.update_status(f"● Hosting on port {port}", self.colors['success'])
+        for server in servers:
+            status = server.get('status', 'offline')
+            status_icon = "🟢" if status == 'online' else "🟡" if status == 'busy' else "🔴"
+            password_protected = "🔒 Yes" if server.get('password_protected') else "🔓 No"
 
-            # Wait a moment for server to start, then refresh list
-            self.root.after(2000, self.refresh_servers)
+            self.servers_tree.insert('', 'end', values=(
+                server.get('name', 'Unknown'),
+                f"{status_icon} {status}",
+                password_protected,
+                server['id']
+            ))
 
-        except Exception as e:
-            self.log_message(f"✗ Failed to start hosting: {e}")
-            messagebox.showerror("Hosting Error", f"Failed to start server: {e}")
 
-    def stop_hosting(self):
-        if self.hosted_server:
-            self.hosted_server.terminate()
-            self.hosted_server.wait()
-            self.hosted_server = None
-
-        self.hosting = False
-        self.host_btn.config(text="Start Hosting")
-        self.log_message("⚠ Stopped hosting server")
-        if not self.connected:
-            self.update_status("● Not Connected", self.colors['error'])
-
-    def log_message(self, message):
-        self.chat_area.config(state=tk.NORMAL)
-
-        if message.startswith('✓'):
-            tag_color = self.colors['success']
-        elif message.startswith('✗') or message.startswith('⚠'):
-            tag_color = self.colors['error']
-        else:
-            tag_color = self.colors['text_primary']
-
-        self.chat_area.insert(tk.END, f"{message}\n")
-
-        start_index = self.chat_area.index("end-2l")
-        end_index = self.chat_area.index("end-1l")
-        self.chat_area.tag_add("colored", start_index, end_index)
-        self.chat_area.tag_config("colored", foreground=tag_color)
-
-        self.chat_area.config(state=tk.DISABLED)
-        self.chat_area.see(tk.END)
-
-    def on_closing(self):
-        self.disconnect_from_server()
-        if self.hosting:
-            self.stop_hosting()
-        self.root.destroy()
+def main():
+    root = tk.Tk()
+    app = ParsecLikeApp(root)
+    root.mainloop()
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = ModernServerBrowser(root)
-    root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    root.mainloop()
+    main()

@@ -1,2 +1,4 @@
-# All imports are from Python standard library
-# No external packages required
+flask
+flask-cors
+pillow
+requests
