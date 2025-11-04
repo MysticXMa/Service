@@ -15,7 +15,7 @@ class ScreenShareApp:
         self.root = root
         self.root.title("Screen Share Pro")
         self.root.geometry("900x700")
-        self.root.configure(bg='#2c3e50')
+        self.root.configure(bg='#1a1a1a')
 
         self.name = ""
         self.password = ""
@@ -31,14 +31,34 @@ class ScreenShareApp:
 
     def setup_styles(self):
         self.style = ttk.Style()
-        self.style.configure('TFrame', background='#2c3e50')
-        self.style.configure('TLabel', background='#2c3e50', foreground='white', font=('Arial', 11))
-        self.style.configure('Title.TLabel', font=('Arial', 24, 'bold'), foreground='#3498db')
-        self.style.configure('TButton', font=('Arial', 10), padding=10)
-        self.style.configure('Primary.TButton', background='#3498db', foreground='white')
-        self.style.configure('Success.TButton', background='#2ecc71', foreground='white')
-        self.style.configure('Danger.TButton', background='#e74c3c', foreground='white')
-        self.style.configure('TEntry', padding=8)
+
+        self.style.theme_use('clam')
+
+        self.style.configure('.', background='#1a1a1a', foreground='white')
+        self.style.configure('TFrame', background='#1a1a1a')
+        self.style.configure('TLabel', background='#1a1a1a', foreground='#e0e0e0', font=('Arial', 10))
+        self.style.configure('Title.TLabel', font=('Arial', 24, 'bold'), foreground='#ffffff')
+        self.style.configure('Subtitle.TLabel', font=('Arial', 12), foreground='#b0b0b0')
+
+        self.style.configure('TButton', font=('Arial', 10), padding=12)
+        self.style.configure('Primary.TButton', background='#404040', foreground='white')
+        self.style.map('Primary.TButton',
+                       background=[('active', '#505050'), ('pressed', '#606060')])
+
+        self.style.configure('Success.TButton', background='#2d2d2d', foreground='#4CAF50')
+        self.style.map('Success.TButton',
+                       background=[('active', '#3d3d3d'), ('pressed', '#4d4d4d')])
+
+        self.style.configure('Danger.TButton', background='#2d2d2d', foreground='#f44336')
+        self.style.map('Danger.TButton',
+                       background=[('active', '#3d3d3d'), ('pressed', '#4d4d4d')])
+
+        self.style.configure('TEntry', fieldbackground='#2d2d2d', foreground='white',
+                             borderwidth=1, focusthickness=1, focuscolor='#404040')
+        self.style.configure('Treeview', background='#2d2d2d', foreground='white',
+                             fieldbackground='#2d2d2d', borderwidth=0)
+        self.style.configure('Treeview.Heading', background='#404040', foreground='white')
+        self.style.map('Treeview', background=[('selected', '#404040')])
 
     def clear_window(self):
         for widget in self.root.winfo_children():
@@ -49,22 +69,25 @@ class ScreenShareApp:
         self.mode = "menu"
 
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(expand=True, fill='both', padx=50, pady=50)
+        main_frame.pack(expand=True, fill='both', padx=60, pady=60)
 
-        title = ttk.Label(main_frame, text="Screen Share Pro", style='Title.TLabel')
-        title.pack(pady=(0, 40))
+        title = ttk.Label(main_frame, text="SCREEN SHARE PRO", style='Title.TLabel')
+        title.pack(pady=(0, 10))
+
+        subtitle = ttk.Label(main_frame, text="Secure Real-time Screen Sharing", style='Subtitle.TLabel')
+        subtitle.pack(pady=(0, 40))
 
         input_frame = ttk.Frame(main_frame)
         input_frame.pack(pady=20, fill='x')
 
-        ttk.Label(input_frame, text="Your Name:").grid(row=0, column=0, sticky='w', pady=5)
+        ttk.Label(input_frame, text="Your Name:", font=('Arial', 11)).grid(row=0, column=0, sticky='w', pady=8)
         self.name_entry = ttk.Entry(input_frame, width=30, font=('Arial', 11))
-        self.name_entry.grid(row=0, column=1, padx=10, pady=5, sticky='ew')
+        self.name_entry.grid(row=0, column=1, padx=15, pady=8, sticky='ew')
         self.name_entry.insert(0, self.name)
 
-        ttk.Label(input_frame, text="Password:").grid(row=1, column=0, sticky='w', pady=5)
+        ttk.Label(input_frame, text="Password:", font=('Arial', 11)).grid(row=1, column=0, sticky='w', pady=8)
         self.password_entry = ttk.Entry(input_frame, width=30, show="*", font=('Arial', 11))
-        self.password_entry.grid(row=1, column=1, padx=10, pady=5, sticky='ew')
+        self.password_entry.grid(row=1, column=1, padx=15, pady=8, sticky='ew')
         self.password_entry.insert(0, self.password)
 
         input_frame.columnconfigure(1, weight=1)
@@ -72,18 +95,21 @@ class ScreenShareApp:
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(pady=30, fill='x')
 
-        ttk.Button(button_frame, text="Start Sharing",
-                   command=self.start_sharing, style='Success.TButton').pack(fill='x', pady=10)
+        ttk.Button(button_frame, text="START SCREEN SHARING",
+                   command=self.start_sharing, style='Success.TButton').pack(fill='x', pady=8)
 
-        ttk.Button(button_frame, text="View Available Servers",
-                   command=self.show_servers, style='Primary.TButton').pack(fill='x', pady=10)
+        ttk.Button(button_frame, text="VIEW AVAILABLE SERVERS",
+                   command=self.show_servers, style='Primary.TButton').pack(fill='x', pady=8)
 
         if self.code:
             code_frame = ttk.Frame(main_frame)
-            code_frame.pack(pady=20)
+            code_frame.pack(pady=25)
 
-            ttk.Label(code_frame, text=f"Your Share Code: {self.code}",
-                      font=('Arial', 12, 'bold'), foreground='#2ecc71').pack()
+            ttk.Label(code_frame, text="Your Active Share Code:",
+                      font=('Arial', 11), foreground='#b0b0b0').pack()
+
+            ttk.Label(code_frame, text=self.code,
+                      font=('Arial', 20, 'bold'), foreground='#4CAF50').pack(pady=8)
 
     def start_sharing(self):
         self.name = self.name_entry.get()
@@ -114,26 +140,29 @@ class ScreenShareApp:
         self.mode = "host"
 
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(expand=True, fill='both', padx=30, pady=30)
+        main_frame.pack(expand=True, fill='both', padx=40, pady=40)
 
-        title = ttk.Label(main_frame, text="Sharing Your Screen", style='Title.TLabel')
-        title.pack(pady=(0, 20))
+        title = ttk.Label(main_frame, text="SHARING YOUR SCREEN", style='Title.TLabel')
+        title.pack(pady=(0, 30))
 
         code_frame = ttk.Frame(main_frame)
-        code_frame.pack(pady=20)
+        code_frame.pack(pady=25)
 
         ttk.Label(code_frame, text="Share this code with others:",
-                  font=('Arial', 14)).pack()
+                  font=('Arial', 14), foreground='#b0b0b0').pack()
 
         ttk.Label(code_frame, text=self.code,
-                  font=('Arial', 28, 'bold'), foreground='#2ecc71').pack(pady=10)
+                  font=('Arial', 32, 'bold'), foreground='#4CAF50').pack(pady=15)
 
-        ttk.Button(main_frame, text="Stop Sharing",
-                   command=self.stop_sharing, style='Danger.TButton').pack(pady=20)
+        separator = ttk.Separator(main_frame, orient='horizontal')
+        separator.pack(fill='x', pady=30)
 
-        self.status_label = ttk.Label(main_frame, text="Status: Sharing...",
-                                      foreground='#2ecc71', font=('Arial', 12))
-        self.status_label.pack()
+        ttk.Button(main_frame, text="STOP SHARING",
+                   command=self.stop_sharing, style='Danger.TButton').pack(pady=15)
+
+        self.status_label = ttk.Label(main_frame, text="● Status: Sharing active...",
+                                      foreground='#4CAF50', font=('Arial', 11))
+        self.status_label.pack(pady=10)
 
         self.start_screen_update()
 
@@ -161,10 +190,10 @@ class ScreenShareApp:
                 self.last_update = time.time()
 
                 self.root.after(0, lambda: self.status_label.config(
-                    text=f"Status: Sharing... Last update: {time.strftime('%H:%M:%S')}"))
+                    text=f"● Status: Sharing... Last update: {time.strftime('%H:%M:%S')}"))
             except Exception as e:
                 self.root.after(0, lambda: self.status_label.config(
-                    text=f"Status: Error - {str(e)}"))
+                    text=f"● Status: Error - {str(e)}"))
 
     def stop_sharing(self):
         self.connected = False
@@ -176,26 +205,39 @@ class ScreenShareApp:
         self.mode = "server_list"
 
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(expand=True, fill='both', padx=30, pady=30)
+        main_frame.pack(expand=True, fill='both', padx=40, pady=40)
 
-        title = ttk.Label(main_frame, text="Available Servers", style='Title.TLabel')
-        title.pack(pady=(0, 20))
+        title = ttk.Label(main_frame, text="AVAILABLE SERVERS", style='Title.TLabel')
+        title.pack(pady=(0, 25))
+
+        subtitle = ttk.Label(main_frame, text="Double-click on a server to connect",
+                             style='Subtitle.TLabel')
+        subtitle.pack(pady=(0, 20))
 
         button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill='x', pady=10)
+        button_frame.pack(fill='x', pady=15)
 
-        ttk.Button(button_frame, text="Refresh",
+        ttk.Button(button_frame, text="REFRESH LIST",
                    command=self.refresh_servers, style='Primary.TButton').pack(side='left')
 
-        ttk.Button(button_frame, text="Back",
+        ttk.Button(button_frame, text="BACK TO MENU",
                    command=self.show_menu, style='Danger.TButton').pack(side='right')
 
-        self.server_tree = ttk.Treeview(main_frame, columns=('name', 'code'), show='headings', height=15)
-        self.server_tree.heading('name', text='Server Name')
-        self.server_tree.heading('code', text='Share Code')
-        self.server_tree.column('name', width=400)
-        self.server_tree.column('code', width=200)
-        self.server_tree.pack(fill='both', expand=True, pady=10)
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill='both', expand=True, pady=15)
+
+        self.server_tree = ttk.Treeview(tree_frame, columns=('name', 'code'), show='headings', height=12)
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient='vertical', command=self.server_tree.yview)
+        self.server_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.server_tree.heading('name', text='SERVER NAME')
+        self.server_tree.heading('code', text='SHARE CODE')
+        self.server_tree.column('name', width=450, anchor='w')
+        self.server_tree.column('code', width=200, anchor='center')
+
+        self.server_tree.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
 
         self.server_tree.bind('<Double-1>', self.connect_to_selected_server)
 
@@ -216,34 +258,49 @@ class ScreenShareApp:
         for item in self.server_tree.get_children():
             self.server_tree.delete(item)
 
-        for server in self.server_list:
-            self.server_tree.insert('', 'end', values=(server['name'], server['code']))
+        if not self.server_list:
+            self.server_tree.insert('', 'end', values=("No servers available", ""))
+        else:
+            for server in self.server_list:
+                self.server_tree.insert('', 'end', values=(server['name'], server['code']))
 
     def connect_to_selected_server(self, event):
         selection = self.server_tree.selection()
         if selection:
             item = self.server_tree.item(selection[0])
-            self.code = item['values'][1]
-            self.show_client_screen()
+            server_code = item['values'][1]
+            if server_code:
+                self.code = server_code
+                self.show_client_screen()
 
     def show_client_screen(self):
         self.clear_window()
         self.mode = "client"
 
         main_frame = ttk.Frame(self.root)
-        main_frame.pack(expand=True, fill='both', padx=30, pady=30)
+        main_frame.pack(expand=True, fill='both', padx=40, pady=40)
 
-        title = ttk.Label(main_frame, text="Viewing Remote Screen", style='Title.TLabel')
-        title.pack(pady=(0, 20))
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill='x', pady=(0, 20))
 
-        ttk.Button(main_frame, text="Disconnect",
-                   command=self.disconnect_client, style='Danger.TButton').pack(pady=10)
+        title = ttk.Label(header_frame, text="VIEWING REMOTE SCREEN", style='Title.TLabel')
+        title.pack(side='left')
 
-        self.screen_label = ttk.Label(main_frame, text="Loading...", background='black')
-        self.screen_label.pack(fill='both', expand=True, pady=10)
+        ttk.Button(header_frame, text="DISCONNECT",
+                   command=self.disconnect_client, style='Danger.TButton').pack(side='right')
 
-        self.status_label_client = ttk.Label(main_frame, text="Status: Connecting...")
-        self.status_label_client.pack()
+        screen_frame = ttk.Frame(main_frame)
+        screen_frame.pack(fill='both', expand=True, pady=10)
+        screen_frame.configure(relief='solid', borderwidth=1)
+
+        self.screen_label = ttk.Label(screen_frame, text="Connecting to remote screen...",
+                                      background='#0a0a0a', foreground='#b0b0b0',
+                                      font=('Arial', 12))
+        self.screen_label.pack(expand=True, fill='both', padx=2, pady=2)
+
+        self.status_label_client = ttk.Label(main_frame, text="● Status: Establishing connection...",
+                                             font=('Arial', 11))
+        self.status_label_client.pack(pady=10)
 
         self.start_screen_viewing()
 
@@ -270,13 +327,13 @@ class ScreenShareApp:
 
                 photo = ImageTk.PhotoImage(image)
 
-                self.root.after(0, lambda: self.update_display(photo, "Status: Connected"))
+                self.root.after(0, lambda: self.update_display(photo, "● Status: Connected - Live"))
             else:
                 self.root.after(0, lambda: self.status_label_client.config(
-                    text="Status: Failed to load screen"))
+                    text="● Status: Failed to load screen - Retrying..."))
         except Exception as e:
             self.root.after(0, lambda: self.status_label_client.config(
-                text=f"Status: Error - {str(e)}"))
+                text=f"● Status: Connection error - {str(e)}"))
 
     def update_display(self, photo, status):
         self.current_image = photo
