@@ -4,7 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="3689a038-bc0f-4fa2-9a3d-58d8c06a7939" name="Changes" comment="" />
+    <list default="true" id="3689a038-bc0f-4fa2-9a3d-58d8c06a7939" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client.py" beforeDir="false" afterPath="$PROJECT_DIR$/client.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -45,8 +48,8 @@
 }]]></component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
-      <recent name="C:\Users\lordd\PycharmProjects\Service\server" />
       <recent name="C:\Users\lordd\PycharmProjects\Service" />
+      <recent name="C:\Users\lordd\PycharmProjects\Service\server" />
     </key>
   </component>
   <component name="RunAnythingCache">
@@ -55,7 +58,7 @@
       <command value="pip install requests pillow pyautogui" />
     </option>
   </component>
-  <component name="RunManager" selected="Python.python screen_share.py">
+  <component name="RunManager" selected="Python.client">
     <configuration name="client" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
       <module name="Service" />
       <option name="ENV_FILES" value="" />
