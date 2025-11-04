@@ -2,239 +2,215 @@ import socket
 import threading
 import json
 import time
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 
-class GameServer:
-    def __init__(self, host='0.0.0.0', port=5555, max_players=4, password=None):
-        self.host = host
-        self.port = port
-        self.max_players = max_players
-        self.password = password
-        self.clients = []
-        self.running = False
-        self.server_socket = None
-        self.registered_servers = []
 
-    def start_server(self):
+class CentralServer:
+    def __init__(self):
+        self.port = int(os.environ.get('PORT', 10000))
+        self.host = '0.0.0.0'
+        self.registered_servers = {}
+        self.heartbeat_timeout = 60
+        print(f"Initializing Central Server on port: {self.port}")
+
+    def start(self):
         try:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.server_socket.bind((self.host, self.port))
-            self.server_socket.listen(5)
-            self.running = True
+            self.server_socket.listen(20)  # Increased for multiple connections
+            self.server_socket.settimeout(1.0)  # Allow for graceful shutdown
 
-            print(f"Server started on {self.host}:{self.port}")
-            print(f"Max players: {self.max_players}")
-            print(f"Password protected: {self.password is not None}")
+            print(f"✅ Central Server started on {self.host}:{self.port}")
+            print(f"🔗 Server URL: https://service-zopk.onrender.com")
+            print(f"📡 Ready to accept connections from game servers and clients...")
 
-            self.register_with_central_server()
+            # Start cleanup thread for dead servers
+            cleanup_thread = threading.Thread(target=self.cleanup_old_servers, daemon=True)
+            cleanup_thread.start()
 
-            accept_thread = threading.Thread(target=self.accept_clients)
-            accept_thread.daemon = True
-            accept_thread.start()
-
-            heartbeat_thread = threading.Thread(target=self.send_heartbeat)
-            heartbeat_thread.daemon = True
-            heartbeat_thread.start()
-
-            return True
-
-        except Exception as e:
-            print(f"Failed to start server: {e}")
-            return False
-
-    def register_with_central_server(self):
-        try:
-            central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            central_socket.connect(('service-zopk.onrender.com', 5555))
-
-            server_info = {
-                'action': 'register',
-                'name': f"Game Server {self.port}",
-                'host': self.host,
-                'port': self.port,
-                'max_players': self.max_players,
-                'has_password': self.password is not None,
-                'current_players': len(self.clients),
-                'status': 'online'
-            }
-
-            central_socket.send(json.dumps(server_info).encode('utf-8'))
-            response = central_socket.recv(1024).decode('utf-8')
-            print(f"Registration response: {response}")
-            central_socket.close()
-
-        except Exception as e:
-            print(f"Failed to register with central server: {e}")
-
-    def send_heartbeat(self):
-        while self.running:
-            try:
-                central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                central_socket.connect(('service-zopk.onrender.com', 5555))
-
-                heartbeat_info = {
-                    'action': 'heartbeat',
-                    'port': self.port,
-                    'current_players': len(self.clients),
-                    'status': 'online'
-                }
-
-                central_socket.send(json.dumps(heartbeat_info).encode('utf-8'))
-                central_socket.close()
-
-            except Exception as e:
-                print(f"Heartbeat failed: {e}")
-
-            time.sleep(30)
-
-    def accept_clients(self):
-        while self.running:
-            try:
-                client_socket, address = self.server_socket.accept()
-                print(f"New connection from {address}")
-
-                client_thread = threading.Thread(target=self.handle_client, args=(client_socket, address))
-                client_thread.daemon = True
-                client_thread.start()
-
-            except Exception as e:
-                if self.running:
-                    print(f"Error accepting client: {e}")
-
-    def handle_client(self, client_socket, address):
-        try:
-            welcome_msg = {
-                'type': 'welcome',
-                'message': 'Connected to game server',
-                'max_players': self.max_players,
-                'requires_password': self.password is not None
-            }
-            client_socket.send(json.dumps(welcome_msg).encode('utf-8'))
-
-            if self.password:
-                auth_msg = json.loads(client_socket.recv(1024).decode('utf-8'))
-                if auth_msg.get('password') != self.password:
-                    error_msg = {'type': 'error', 'message': 'Invalid password'}
-                    client_socket.send(json.dumps(error_msg).encode('utf-8'))
-                    client_socket.close()
-                    return
-
-            client_info = {
-                'socket': client_socket,
-                'address': address,
-                'joined_at': datetime.now()
-            }
-            self.clients.append(client_info)
-
-            success_msg = {
-                'type': 'success',
-                'message': f'Successfully joined server! Players: {len(self.clients)}/{self.max_players}'
-            }
-            client_socket.send(json.dumps(success_msg).encode('utf-8'))
-
-            self.broadcast_player_count()
-
-            while self.running:
+            # Main connection loop
+            while True:
                 try:
-                    data = client_socket.recv(1024)
-                    if not data:
-                        break
+                    client_socket, address = self.server_socket.accept()
+                    print(f"📨 New connection from {address}")
 
-                    message = json.loads(data.decode('utf-8'))
-                    if message.get('type') == 'chat':
-                        self.broadcast_chat(message, address)
+                    # Handle each client in separate thread
+                    client_thread = threading.Thread(
+                        target=self.handle_client,
+                        args=(client_socket, address)
+                    )
+                    client_thread.daemon = True
+                    client_thread.start()
 
-                except:
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    if "closed" not in str(e):
+                        print(f"❌ Error accepting connection: {e}")
                     break
 
         except Exception as e:
-            print(f"Error handling client {address}: {e}")
+            print(f"❌ Failed to start central server: {e}")
         finally:
-            self.clients = [c for c in self.clients if c['socket'] != client_socket]
-            self.broadcast_player_count()
-            client_socket.close()
+            if hasattr(self, 'server_socket'):
+                self.server_socket.close()
 
-    def broadcast_player_count(self):
-        update_msg = {
-            'type': 'player_count',
-            'count': len(self.clients),
-            'max_players': self.max_players
-        }
-
-        for client in self.clients:
-            try:
-                client['socket'].send(json.dumps(update_msg).encode('utf-8'))
-            except:
-                continue
-
-    def broadcast_chat(self, message, sender_address):
-        chat_msg = {
-            'type': 'chat',
-            'message': message['message'],
-            'sender': str(sender_address),
-            'timestamp': datetime.now().strftime("%H:%M:%S")
-        }
-
-        for client in self.clients:
-            try:
-                client['socket'].send(json.dumps(chat_msg).encode('utf-8'))
-            except:
-                continue
-
-    def stop_server(self):
-        self.running = False
-
-        disconnect_msg = {'type': 'disconnect', 'message': 'Server is shutting down'}
-        for client in self.clients:
-            try:
-                client['socket'].send(json.dumps(disconnect_msg).encode('utf-8'))
-                client['socket'].close()
-            except:
-                continue
-
-        if self.server_socket:
-            self.server_socket.close()
-
+    def handle_client(self, client_socket, address):
         try:
-            central_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            central_socket.connect(('service-zopk.onrender.com', 5555))
+            client_socket.settimeout(10.0)  # Set timeout for operations
+            data = client_socket.recv(4096).decode('utf-8')
+            if not data:
+                return
 
-            unregister_info = {
-                'action': 'unregister',
-                'port': self.port
+            message = json.loads(data)
+            action = message.get('action')
+
+            print(f"🔄 Processing {action} from {address}")
+
+            if action == 'register':
+                self.register_server(message, client_socket)
+            elif action == 'heartbeat':
+                self.update_heartbeat(message)
+            elif action == 'unregister':
+                self.unregister_server(message)
+            elif action == 'get_servers':
+                self.send_server_list(client_socket)
+            else:
+                print(f"⚠️ Unknown action: {action}")
+                response = {'status': 'error', 'message': f'Unknown action: {action}'}
+                client_socket.send(json.dumps(response).encode('utf-8'))
+
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON decode error from {address}: {e}")
+        except socket.timeout:
+            print(f"⏰ Timeout handling client {address}")
+        except Exception as e:
+            print(f"❌ Error handling client {address}: {e}")
+        finally:
+            try:
+                client_socket.close()
+            except:
+                pass
+
+    def register_server(self, server_info, client_socket):
+        try:
+            server_port = server_info['port']
+            server_host = server_info.get('host', 'unknown')
+            server_key = f"{server_host}:{server_port}"
+
+            server_data = {
+                'name': server_info.get('name', f'Game Server {server_port}'),
+                'host': server_host,
+                'port': server_port,
+                'max_players': server_info.get('max_players', 4),
+                'current_players': server_info.get('current_players', 0),
+                'has_password': server_info.get('has_password', False),
+                'status': server_info.get('status', 'online'),
+                'last_heartbeat': datetime.now(),
+                'registered_at': datetime.now(),
+                'public_url': f"{server_host}:{server_port}"
             }
 
-            central_socket.send(json.dumps(unregister_info).encode('utf-8'))
-            central_socket.close()
+            self.registered_servers[server_key] = server_data
+            print(f"✅ Registered server: {server_key} - {server_data['name']}")
+            print(f"   Players: {server_data['current_players']}/{server_data['max_players']}")
+            print(f"   Password: {'Yes' if server_data['has_password'] else 'No'}")
+
+            response = {
+                'status': 'success',
+                'message': 'Server registered successfully',
+                'assigned_port': server_port,
+                'central_server': 'service-zopk.onrender.com'
+            }
+            client_socket.send(json.dumps(response).encode('utf-8'))
 
         except Exception as e:
-            print(f"Failed to unregister from central server: {e}")
+            print(f"❌ Error registering server: {e}")
+            response = {'status': 'error', 'message': str(e)}
+            client_socket.send(json.dumps(response).encode('utf-8'))
 
-        print("Server stopped")
+    def update_heartbeat(self, heartbeat_info):
+        try:
+            server_port = heartbeat_info['port']
+            server_host = heartbeat_info.get('host', 'unknown')
+            server_key = f"{server_host}:{server_port}"
+
+            if server_key in self.registered_servers:
+                self.registered_servers[server_key]['last_heartbeat'] = datetime.now()
+                self.registered_servers[server_key]['current_players'] = heartbeat_info.get('current_players', 0)
+                self.registered_servers[server_key]['status'] = heartbeat_info.get('status', 'online')
+
+                # Print heartbeat info occasionally
+                if heartbeat_info.get('current_players', 0) > 0:
+                    print(f"💓 Heartbeat: {server_key} - {heartbeat_info['current_players']} players")
+
+        except Exception as e:
+            print(f"❌ Error updating heartbeat: {e}")
+
+    def unregister_server(self, server_info):
+        try:
+            server_port = server_info['port']
+            server_host = server_info.get('host', 'unknown')
+            server_key = f"{server_host}:{server_port}"
+
+            if server_key in self.registered_servers:
+                del self.registered_servers[server_key]
+                print(f"🗑️ Unregistered server: {server_key}")
+
+        except Exception as e:
+            print(f"❌ Error unregistering server: {e}")
+
+    def send_server_list(self, client_socket):
+        try:
+            server_list = []
+            for server_key, server_data in self.registered_servers.items():
+                # Create a copy without datetime objects for JSON serialization
+                server_copy = server_data.copy()
+                server_copy.pop('last_heartbeat', None)
+                server_copy.pop('registered_at', None)
+                server_list.append(server_copy)
+
+            print(f"📊 Sending server list: {len(server_list)} servers available")
+            client_socket.send(json.dumps(server_list).encode('utf-8'))
+
+        except Exception as e:
+            print(f"❌ Error sending server list: {e}")
+            client_socket.send(json.dumps([]).encode('utf-8'))
+
+    def cleanup_old_servers(self):
+        """Remove servers that haven't sent heartbeat in timeout period"""
+        while True:
+            try:
+                current_time = datetime.now()
+                servers_to_remove = []
+
+                for server_key, server_data in self.registered_servers.items():
+                    time_since_heartbeat = current_time - server_data['last_heartbeat']
+                    if time_since_heartbeat.total_seconds() > self.heartbeat_timeout:
+                        servers_to_remove.append(server_key)
+
+                for server_key in servers_to_remove:
+                    print(f"🧹 Removing inactive server: {server_key}")
+                    del self.registered_servers[server_key]
+
+                # Print server count every cleanup cycle
+                active_servers = len(self.registered_servers)
+                total_players = sum(server['current_players'] for server in self.registered_servers.values())
+                print(f"📈 Server Stats: {active_servers} active servers, {total_players} total players")
+
+                time.sleep(30)  # Check every 30 seconds
+
+            except Exception as e:
+                print(f"❌ Error in cleanup thread: {e}")
+                time.sleep(30)
 
 
 if __name__ == "__main__":
-    import sys
+    print("🚀 Starting Game Server Central Server...")
+    print("📍 Domain: https://service-zopk.onrender.com")
+    print("⏰ Server will handle port management and server discovery")
 
-    if len(sys.argv) > 1:
-        port = int(sys.argv[1])
-        max_players = int(sys.argv[2]) if len(sys.argv) > 2 else 4
-        password = sys.argv[3] if len(sys.argv) > 3 else None
-    else:
-        port = 5555
-        max_players = 4
-        password = None
-
-    server = GameServer(port=port, max_players=max_players, password=password)
-
-    try:
-        if server.start_server():
-            print("Press Ctrl+C to stop the server")
-            while server.running:
-                time.sleep(1)
-        else:
-            print("Failed to start server")
-    except KeyboardInterrupt:
-        print("\nStopping server...")
-        server.stop_server()
+    server = CentralServer()
+    server.start()
