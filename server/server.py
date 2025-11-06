@@ -1,4 +1,3 @@
-# server.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import uuid
@@ -10,7 +9,6 @@ CORS(app)
 servers = {}
 screenshots = {}
 server_timeout = 300
-
 
 class ServerManager:
     @staticmethod
@@ -88,23 +86,29 @@ class ServerManager:
 
     @staticmethod
     def store_screenshot(server_id, screenshot_data):
-        screenshots[server_id] = {
-            'data': screenshot_data,
-            'timestamp': time.time()
-        }
+        try:
+            screenshots[server_id] = {
+                'data': screenshot_data,
+                'timestamp': time.time()
+            }
+            return True
+        except Exception as e:
+            print(f"Error storing screenshot: {e}")
+            return False
 
     @staticmethod
     def get_screenshot(server_id):
         if server_id in screenshots:
-            return screenshots[server_id]
+            if time.time() - screenshots[server_id]['timestamp'] < 30:
+                return screenshots[server_id]
+            else:
+                del screenshots[server_id]
         return None
-
 
 @app.route('/api/servers', methods=['GET'])
 def get_servers():
     servers_list = ServerManager.get_all_servers()
     return jsonify(servers_list)
-
 
 @app.route('/api/servers', methods=['POST'])
 def create_server():
@@ -122,7 +126,6 @@ def create_server():
         'message': f'Server "{name}" created successfully'
     })
 
-
 @app.route('/api/servers/<server_id>', methods=['PUT'])
 def update_server(server_id):
     data = request.json
@@ -134,14 +137,12 @@ def update_server(server_id):
     else:
         return jsonify({'error': 'Server not found'}), 404
 
-
 @app.route('/api/servers/<server_id>', methods=['DELETE'])
 def delete_server(server_id):
     if ServerManager.delete_server(server_id):
         return jsonify({'message': 'Server deleted successfully'})
     else:
         return jsonify({'error': 'Server not found'}), 404
-
 
 @app.route('/api/servers/<server_id>/connect', methods=['POST'])
 def connect_to_server(server_id):
@@ -174,7 +175,6 @@ def connect_to_server(server_id):
         'server_name': server['name']
     })
 
-
 @app.route('/api/servers/<server_id>/disconnect', methods=['POST'])
 def disconnect_from_server(server_id):
     if server_id not in servers:
@@ -191,7 +191,6 @@ def disconnect_from_server(server_id):
 
     return jsonify({'message': 'Disconnected successfully'})
 
-
 @app.route('/api/servers/<server_id>/screenshot', methods=['POST'])
 def upload_screenshot(server_id):
     data = request.json
@@ -200,9 +199,10 @@ def upload_screenshot(server_id):
     if not screenshot_data:
         return jsonify({'error': 'Screenshot data is required'}), 400
 
-    ServerManager.store_screenshot(server_id, screenshot_data)
-    return jsonify({'message': 'Screenshot uploaded successfully'})
-
+    if ServerManager.store_screenshot(server_id, screenshot_data):
+        return jsonify({'message': 'Screenshot uploaded successfully'})
+    else:
+        return jsonify({'error': 'Failed to store screenshot'}), 500
 
 @app.route('/api/servers/<server_id>/screenshot', methods=['GET'])
 def get_screenshot(server_id):
@@ -212,11 +212,9 @@ def get_screenshot(server_id):
     else:
         return jsonify({'error': 'No screenshot available'}), 404
 
-
 @app.route('/api/health', methods=['GET'])
 def health_check():
     return jsonify({'status': 'healthy', 'server_count': len(servers)})
-
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

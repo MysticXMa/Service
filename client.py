@@ -6,245 +6,246 @@ import threading
 import time
 from PIL import Image, ImageTk
 import io
+import pyautogui
 
 
-class ConnectionApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("PC Connection Hub - Cloud Edition")
-        self.root.geometry("1400x800")
-        self.root.configure(bg='#000000')
+class SimpleConnectionApp:
+    def __init__(self, window):
+        self.root = window
+        self.root.title("PC Connection Hub")
+        self.root.geometry("1000x600")
+        self.root.configure(bg='white')
 
         self.backend_url = "https://service-zopk.onrender.com"
         self.servers = []
         self.hosting_server = None
         self.current_connection = None
         self.screenshot_window = None
-        self.update_interval = 3000  # 3 seconds
-        self.screenshot_interval = 100  # 0.1 seconds = 10/s
+        self.update_interval = 3000
+        self.screenshot_interval = 2000
+
+        self.name_entry = None
+        self.pin_entry = None
+        self.users_var = None
+        self.host_button = None
+        self.stop_button = None
+        self.status_label = None
+        self.search_entry = None
+        self.connect_button = None
+        self.disconnect_button = None
+        self.screenshot_button = None
+        self.auto_screenshot_var = None
+        self.server_tree = None
+        self.screenshot_thread = None
+        self.screenshot_label = None
 
         self.setup_ui()
         self.start_server_updates()
 
     def setup_ui(self):
-        main_container = tk.PanedWindow(self.root, orient='horizontal', bg='#000000', sashwidth=8)
-        main_container.pack(fill='both', expand=True, padx=5, pady=5)
+        main_frame = tk.Frame(self.root, bg='white', padx=20, pady=20)
+        main_frame.pack(fill='both', expand=True)
 
-        self.setup_left_panel(main_container)
-        self.setup_right_panel(main_container)
-
-        main_container.add(self.left_frame)
-        main_container.add(self.right_frame)
-
-    def setup_left_panel(self, main_container):
-        self.left_frame = tk.Frame(main_container, bg='#1a1a1a', width=300)
-
-        header_frame = tk.Frame(self.left_frame, bg='#1a1a1a', padx=25, pady=25)
-        header_frame.pack(fill='x', anchor='n')
-
-        tk.Label(
-            header_frame,
-            text="Host Server",
-            font=('Segoe UI', 20, 'bold'),
-            bg='#1a1a1a',
-            fg='#ffffff'
-        ).pack(anchor='w', pady=(0, 10))
-
-        tk.Label(
-            header_frame,
-            text="Configure and manage your server",
-            font=('Segoe UI', 10),
-            bg='#1a1a1a',
-            fg='#ffffff'
-        ).pack(anchor='w')
-
-        separator = tk.Frame(self.left_frame, height=1, bg='#333333')
-        separator.pack(fill='x', padx=20, pady=20)
-
-        self.setup_host_form()
-
-    def setup_host_form(self):
-        form_frame = tk.Frame(self.left_frame, bg='#1a1a1a', padx=25)
-        form_frame.pack(fill='both', expand=True, anchor='w')
-
-        name_frame = tk.Frame(form_frame, bg='#1a1a1a', pady=15)
-        name_frame.pack(fill='x', anchor='w')
-
-        tk.Label(
-            name_frame,
-            text="Server Name:",
-            font=('Segoe UI', 11, 'bold'),
-            bg='#1a1a1a',
-            fg='#ffffff',
-            anchor='w'
-        ).pack(fill='x', pady=(0, 5))
-
-        self.name_entry = tk.Entry(
-            name_frame,
-            font=('Segoe UI', 11),
-            bg='#2a2a2a',
-            fg='#ffffff',
-            insertbackground='white',
-            relief='flat'
+        title_label = tk.Label(
+            main_frame,
+            text="PC Connection Hub",
+            font=('Arial', 24, 'bold'),
+            bg='white',
+            fg='black'
         )
-        self.name_entry.pack(fill='x', pady=(5, 0))
+        title_label.pack(pady=(0, 20))
 
-        pin_frame = tk.Frame(form_frame, bg='#1a1a1a', pady=15)
-        pin_frame.pack(fill='x', anchor='w')
-
-        tk.Label(
-            pin_frame,
-            text="Pin Code (Optional):",
-            font=('Segoe UI', 11, 'bold'),
-            bg='#1a1a1a',
-            fg='#ffffff',
-            anchor='w'
-        ).pack(fill='x', pady=(0, 5))
-
-        self.pin_entry = tk.Entry(
-            pin_frame,
-            font=('Segoe UI', 11),
-            show="*",
-            bg='#2a2a2a',
-            fg='#ffffff',
-            insertbackground='white',
-            relief='flat'
+        host_frame = tk.LabelFrame(
+            main_frame,
+            text=" Host Your Server ",
+            font=('Arial', 12, 'bold'),
+            bg='white',
+            fg='black',
+            bd=2,
+            relief='solid'
         )
-        self.pin_entry.pack(fill='x', pady=(5, 0))
+        host_frame.pack(fill='x', pady=(0, 20))
 
-        users_frame = tk.Frame(form_frame, bg='#1a1a1a', pady=15)
-        users_frame.pack(fill='x', anchor='w')
+        form_frame = tk.Frame(host_frame, bg='white', padx=10, pady=10)
+        form_frame.pack(fill='x')
 
-        tk.Label(
-            users_frame,
-            text="Max Users:",
-            font=('Segoe UI', 11, 'bold'),
-            bg='#1a1a1a',
-            fg='#ffffff',
-            anchor='w'
-        ).pack(fill='x', pady=(0, 5))
+        tk.Label(form_frame, text="Server Name:", bg='white', fg='black', font=('Arial', 10)).grid(row=0, column=0,
+                                                                                                   sticky='w', pady=5)
+        self.name_entry = tk.Entry(form_frame, font=('Arial', 10), width=20, bd=1, relief='solid')
+        self.name_entry.grid(row=0, column=1, sticky='w', padx=5, pady=5)
 
+        tk.Label(form_frame, text="PIN (optional):", bg='white', fg='black', font=('Arial', 10)).grid(row=1, column=0,
+                                                                                                      sticky='w',
+                                                                                                      pady=5)
+        self.pin_entry = tk.Entry(form_frame, font=('Arial', 10), show="*", width=20, bd=1, relief='solid')
+        self.pin_entry.grid(row=1, column=1, sticky='w', padx=5, pady=5)
+
+        tk.Label(form_frame, text="Max Users:", bg='white', fg='black', font=('Arial', 10)).grid(row=2, column=0,
+                                                                                                 sticky='w', pady=5)
         self.users_var = tk.StringVar(value="5")
         users_spinbox = tk.Spinbox(
-            users_frame,
+            form_frame,
             from_=1,
             to=50,
             textvariable=self.users_var,
-            font=('Segoe UI', 11),
-            bg='#2a2a2a',
-            fg='#ffffff',
-            buttonbackground='#333333',
-            relief='flat'
+            font=('Arial', 10),
+            width=18,
+            bd=1,
+            relief='solid'
         )
-        users_spinbox.pack(fill='x', pady=(5, 0))
+        users_spinbox.grid(row=2, column=1, sticky='w', padx=5, pady=5)
 
-        button_frame = tk.Frame(form_frame, bg='#1a1a1a', pady=30)
-        button_frame.pack(fill='x', anchor='w')
+        button_frame = tk.Frame(form_frame, bg='white')
+        button_frame.grid(row=3, column=0, columnspan=2, pady=10)
 
         self.host_button = tk.Button(
             button_frame,
             text="Start Hosting",
-            font=('Segoe UI', 12, 'bold'),
+            font=('Arial', 10, 'bold'),
             bg='#4CAF50',
             fg='white',
-            relief='flat',
-            padx=30,
-            pady=12,
+            relief='solid',
+            bd=1,
+            padx=20,
+            pady=5,
             command=self.start_hosting
         )
-        self.host_button.pack(fill='x', pady=(0, 10))
+        self.host_button.pack(side='left', padx=5)
 
         self.stop_button = tk.Button(
             button_frame,
             text="Stop Hosting",
-            font=('Segoe UI', 12),
+            font=('Arial', 10, 'bold'),
             bg='#f44336',
             fg='white',
-            relief='flat',
-            padx=30,
-            pady=12,
+            relief='solid',
+            bd=1,
+            padx=20,
+            pady=5,
             command=self.stop_hosting,
             state='disabled'
         )
-        self.stop_button.pack(fill='x')
-
-        status_frame = tk.Frame(form_frame, bg='#1a1a1a', pady=20)
-        status_frame.pack(fill='x', anchor='w')
+        self.stop_button.pack(side='left', padx=5)
 
         self.status_label = tk.Label(
-            status_frame,
-            text="Status: Not Hosting",
-            font=('Segoe UI', 10),
-            bg='#1a1a1a',
-            fg='#ffffff',
-            anchor='w'
+            form_frame,
+            text="Status: Not hosting",
+            font=('Arial', 9),
+            bg='white',
+            fg='black'
         )
-        self.status_label.pack(fill='x')
+        self.status_label.grid(row=4, column=0, columnspan=2, sticky='w', pady=5)
 
-    def setup_right_panel(self, main_container):
-        self.right_frame = tk.Frame(main_container, bg='#000000')
-
-        header_frame = tk.Frame(self.right_frame, bg='#000000', padx=25, pady=25)
-        header_frame.pack(fill='x')
-
-        self.header_label = tk.Label(
-            header_frame,
-            text="Available Servers",
-            font=('Segoe UI', 20, 'bold'),
-            bg='#000000',
-            fg='#ffffff'
+        servers_frame = tk.LabelFrame(
+            main_frame,
+            text=" Available Servers ",
+            font=('Arial', 12, 'bold'),
+            bg='white',
+            fg='black',
+            bd=2,
+            relief='solid'
         )
-        self.header_label.pack(anchor='w')
+        servers_frame.pack(fill='both', expand=True)
 
-        search_frame = tk.Frame(self.right_frame, bg='#000000', padx=25, pady=15)
+        search_frame = tk.Frame(servers_frame, bg='white', padx=10, pady=10)
         search_frame.pack(fill='x')
 
-        tk.Label(
-            search_frame,
-            text="Search:",
-            font=('Segoe UI', 11),
-            bg='#000000',
-            fg='#ffffff'
-        ).pack(side='left')
-
+        tk.Label(search_frame, text="Search:", bg='white', fg='black', font=('Arial', 10)).pack(side='left')
         self.search_entry = tk.Entry(
             search_frame,
-            font=('Segoe UI', 11),
-            width=40,
-            bg='#2a2a2a',
-            fg='#ffffff',
-            insertbackground='white',
-            relief='flat'
+            font=('Arial', 10),
+            width=30,
+            bd=1,
+            relief='solid'
         )
-        self.search_entry.pack(side='left', padx=(10, 0))
+        self.search_entry.pack(side='left', padx=5)
         self.search_entry.bind('<KeyRelease>', self.filter_servers)
 
-        self.setup_server_table()
+        self.setup_server_table(servers_frame)
 
-    def setup_server_table(self):
-        table_frame = tk.Frame(self.right_frame, bg='#000000')
-        table_frame.pack(fill='both', expand=True, padx=25, pady=10)
+        control_frame = tk.Frame(servers_frame, bg='white', padx=10, pady=10)
+        control_frame.pack(fill='x')
+
+        self.connect_button = tk.Button(
+            control_frame,
+            text="Connect to Server",
+            font=('Arial', 10, 'bold'),
+            bg='#2196F3',
+            fg='white',
+            relief='solid',
+            bd=1,
+            padx=15,
+            pady=5,
+            command=self.connect_to_server
+        )
+        self.connect_button.pack(side='left', padx=5)
+
+        self.disconnect_button = tk.Button(
+            control_frame,
+            text="Disconnect",
+            font=('Arial', 10),
+            bg='#ff9800',
+            fg='white',
+            relief='solid',
+            bd=1,
+            padx=15,
+            pady=5,
+            command=self.disconnect_from_server,
+            state='disabled'
+        )
+        self.disconnect_button.pack(side='left', padx=5)
+
+        self.screenshot_button = tk.Button(
+            control_frame,
+            text="View Screen",
+            font=('Arial', 10),
+            bg='#9c27b0',
+            fg='white',
+            relief='solid',
+            bd=1,
+            padx=15,
+            pady=5,
+            command=self.show_screenshot,
+            state='disabled'
+        )
+        self.screenshot_button.pack(side='left', padx=5)
+
+        self.auto_screenshot_var = tk.BooleanVar(value=True)
+        auto_screenshot_cb = tk.Checkbutton(
+            control_frame,
+            text="Auto Upload Screenshots",
+            variable=self.auto_screenshot_var,
+            bg='white',
+            fg='black',
+            font=('Arial', 9),
+            command=self.toggle_screenshot_upload
+        )
+        auto_screenshot_cb.pack(side='right', padx=5)
+
+    def setup_server_table(self, parent):
+        table_frame = tk.Frame(parent, bg='white')
+        table_frame.pack(fill='both', expand=True, padx=10, pady=(0, 10))
 
         style = ttk.Style()
         style.configure("Treeview",
-                        background="#000000",
-                        foreground="#ffffff",
-                        fieldbackground="#000000",
-                        borderwidth=0,
-                        relief='flat')
+                        background="white",
+                        foreground="black",
+                        fieldbackground="white",
+                        borderwidth=1,
+                        relief='solid')
         style.configure("Treeview.Heading",
-                        background="#000000",
-                        foreground="#ffffff",
-                        borderwidth=0,
-                        relief='flat')
-        style.map('Treeview', background=[('selected', '#333333')])
+                        background="white",
+                        foreground="black",
+                        borderwidth=1,
+                        relief='solid')
+        style.map('Treeview', background=[('selected', '#e0e0e0')])
 
         columns = ('ID', 'Name', 'Players', 'Status')
         self.server_tree = ttk.Treeview(
             table_frame,
             columns=columns,
             show='headings',
-            height=15,
+            height=8,
             style="Treeview"
         )
 
@@ -255,8 +256,8 @@ class ConnectionApp:
 
         self.server_tree.column('ID', width=120)
         self.server_tree.column('Name', width=200)
-        self.server_tree.column('Players', width=100)
-        self.server_tree.column('Status', width=120)
+        self.server_tree.column('Players', width=80)
+        self.server_tree.column('Status', width=100)
 
         scrollbar = ttk.Scrollbar(table_frame, orient='vertical', command=self.server_tree.yview)
         self.server_tree.configure(yscrollcommand=scrollbar.set)
@@ -264,59 +265,13 @@ class ConnectionApp:
         self.server_tree.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
 
-        connection_frame = tk.Frame(self.right_frame, bg='#000000', pady=10)
-        connection_frame.pack(fill='x', padx=25)
-
-        button_container = tk.Frame(connection_frame, bg='#000000')
-        button_container.pack(fill='x')
-
-        self.connect_button = tk.Button(
-            button_container,
-            text="Connect to Server",
-            font=('Segoe UI', 12, 'bold'),
-            bg='#2196F3',
-            fg='white',
-            relief='flat',
-            padx=20,
-            pady=10,
-            command=self.connect_to_server
-        )
-        self.connect_button.pack(side='left', padx=(0, 10))
-
-        self.disconnect_button = tk.Button(
-            button_container,
-            text="Disconnect",
-            font=('Segoe UI', 12),
-            bg='#ff9800',
-            fg='white',
-            relief='flat',
-            padx=20,
-            pady=10,
-            command=self.disconnect_from_server,
-            state='disabled'
-        )
-        self.disconnect_button.pack(side='left', padx=(0, 10))
-
-        self.screenshot_button = tk.Button(
-            button_container,
-            text="View Screen",
-            font=('Segoe UI', 12),
-            bg='#9c27b0',
-            fg='white',
-            relief='flat',
-            padx=20,
-            pady=10,
-            command=self.show_screenshot,
-            state='disabled'
-        )
-        self.screenshot_button.pack(side='left')
-
         self.server_tree.bind('<Double-1>', self.on_double_click)
 
     def api_request(self, endpoint, method='GET', data=None):
         try:
             url = f"{self.backend_url}{endpoint}"
             headers = {'Content-Type': 'application/json'}
+            response = None
 
             if method == 'GET':
                 response = requests.get(url, headers=headers, timeout=10)
@@ -327,10 +282,38 @@ class ConnectionApp:
             elif method == 'DELETE':
                 response = requests.delete(url, headers=headers, timeout=10)
 
-            return response.json() if response.content else {}
+            if response:
+                return response.json() if response.content else {}
+            return {}
         except Exception as e:
             print(f"API Error: {e}")
             return {'error': str(e)}
+
+    def capture_and_upload_screenshot(self):
+        if self.hosting_server and self.auto_screenshot_var.get():
+            try:
+                screenshot = pyautogui.screenshot()
+                buffered = io.BytesIO()
+                screenshot.save(buffered, format="PNG")
+                img_str = base64.b64encode(buffered.getvalue()).decode()
+                data = {'screenshot': img_str}
+                self.api_request(f'/api/servers/{self.hosting_server["id"]}/screenshot', 'POST', data)
+            except Exception as e:
+                print(f"Screenshot error: {e}")
+
+    def toggle_screenshot_upload(self):
+        if self.hosting_server and self.auto_screenshot_var.get():
+            self.start_screenshot_upload()
+
+    def start_screenshot_upload(self):
+        def upload_loop():
+            while (self.hosting_server and
+                   self.auto_screenshot_var.get()):
+                self.capture_and_upload_screenshot()
+                time.sleep(self.screenshot_interval / 1000)
+
+        self.screenshot_thread = threading.Thread(target=upload_loop, daemon=True)
+        self.screenshot_thread.start()
 
     def start_hosting(self):
         name = self.name_entry.get().strip()
@@ -369,6 +352,9 @@ class ConnectionApp:
         self.pin_entry.config(state='disabled')
         self.status_label.config(text=f"Status: Hosting - {server_id}")
 
+        if self.auto_screenshot_var.get():
+            self.start_screenshot_upload()
+
         messagebox.showinfo("Success", f"Server '{name}' started!\nServer ID: {server_id}")
         self.refresh_server_list()
 
@@ -403,7 +389,7 @@ class ConnectionApp:
 
         for server in self.servers:
             players_text = f"{server['current_users']}/{server['max_users']}"
-            item = self.server_tree.insert(
+            self.server_tree.insert(
                 '', 'end',
                 values=(
                     server['id'],
@@ -422,21 +408,23 @@ class ConnectionApp:
         update_thread = threading.Thread(target=update_loop, daemon=True)
         update_thread.start()
 
-    def filter_servers(self, event):
+    def filter_servers(self, event=None):
         search_text = self.search_entry.get().lower()
 
         for item in self.server_tree.get_children():
-            values = self.server_tree.item(item)['values']
-            server_name = values[1].lower() if len(values) > 1 else ""
-            server_id = values[0].lower() if len(values) > 0 else ""
+            self.server_tree.item(item, tags=('visible',))
 
-            if search_text in server_name or search_text in server_id:
-                self.server_tree.item(item, tags=('visible',))
-            else:
-                self.server_tree.item(item, tags=('hidden',))
+        if search_text:
+            for item in self.server_tree.get_children():
+                values = self.server_tree.item(item)['values']
+                server_name = values[1].lower() if len(values) > 1 else ""
+                server_id = values[0].lower() if len(values) > 0 else ""
 
-        self.server_tree.tag_configure('visible', background='#000000')
-        self.server_tree.tag_configure('hidden', background='#1a1a1a')
+                if search_text not in server_name and search_text not in server_id:
+                    self.server_tree.item(item, tags=('hidden',))
+
+        self.server_tree.tag_configure('visible', background='white')
+        self.server_tree.tag_configure('hidden', background='#f0f0f0')
 
     def connect_to_server(self):
         selected = self.server_tree.selection()
@@ -457,17 +445,15 @@ class ConnectionApp:
             messagebox.showerror("Error", f"Cannot connect. Status: {server['status']}")
             return
 
-        # Ask for PIN if required
         pin_code = ""
         if server.get('pin'):
             pin_code = self.ask_for_pin()
-            if pin_code is None:  # User cancelled
+            if pin_code is None:
                 return
 
-        # Connect to server
         data = {
             'pin': pin_code,
-            'user_name': 'User'  # In a real app, you'd ask for username
+            'user_name': 'User'
         }
 
         result = self.api_request(f'/api/servers/{server_id}/connect', 'POST', data)
@@ -513,24 +499,23 @@ class ConnectionApp:
         self.screenshot_window = tk.Toplevel(self.root)
         self.screenshot_window.title(f"Screen View - {self.current_connection}")
         self.screenshot_window.geometry("800x600")
-        self.screenshot_window.configure(bg='#000000')
+        self.screenshot_window.configure(bg='white')
 
-        # Screenshot display
-        screenshot_frame = tk.Frame(self.screenshot_window, bg='#000000')
+        screenshot_frame = tk.Frame(self.screenshot_window, bg='white')
         screenshot_frame.pack(fill='both', expand=True, padx=10, pady=10)
 
         self.screenshot_label = tk.Label(
             screenshot_frame,
             text="Waiting for screen data...",
-            font=('Segoe UI', 12),
-            bg='#000000',
-            fg='#ffffff'
+            font=('Arial', 12),
+            bg='white',
+            fg='black'
         )
         self.screenshot_label.pack(expand=True)
 
-        self.start_screenshot_updates()
+        self.start_screenshot_viewer()
 
-    def start_screenshot_updates(self):
+    def start_screenshot_viewer(self):
         def update_screenshot():
             while (self.screenshot_window and
                    self.screenshot_window.winfo_exists() and
@@ -547,7 +532,7 @@ class ConnectionApp:
                         photo = ImageTk.PhotoImage(image)
 
                         self.screenshot_label.configure(image=photo, text="")
-                        self.screenshot_label.image = photo
+                        self.screenshot_label.image_ref = photo
                     except Exception as e:
                         self.screenshot_label.configure(
                             text=f"Error displaying image: {e}",
@@ -561,23 +546,20 @@ class ConnectionApp:
 
                 time.sleep(self.screenshot_interval / 1000)
 
-        screenshot_thread = threading.Thread(target=update_screenshot, daemon=True)
-        screenshot_thread.start()
+        viewer_thread = threading.Thread(target=update_screenshot, daemon=True)
+        viewer_thread.start()
 
-    def on_double_click(self, event):
+    def on_double_click(self, event=None):
         self.connect_to_server()
 
-    def ask_for_pin(self):
-        import tkinter.simpledialog as simpledialog
-        pin = simpledialog.askstring("PIN Required", "Enter PIN code:", show='*')
+    @staticmethod
+    def ask_for_pin():
+        import tkinter.simpledialog
+        pin = tkinter.simpledialog.askstring("PIN Required", "Enter PIN code:", show='*')
         return pin if pin else ""
 
 
-def main():
-    root = tk.Tk()
-    app = ConnectionApp(root)
-    root.mainloop()
-
-
 if __name__ == "__main__":
-    main()
+    root_window = tk.Tk()
+    SimpleConnectionApp(root_window)
+    root_window.mainloop()
