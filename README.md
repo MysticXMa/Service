@@ -7,7 +7,7 @@
 3. Start Command: `cd server && gunicorn server:app`
 
 ### Client
-1. Install dependencies: `pip install requests pillow pyautogui`
+1. Install dependencies: `cd server && pip install -r requirements.txt`
 2. Run: `python client.py`
 3. Update `SERVER_URL` in client.py to your Render URL
 

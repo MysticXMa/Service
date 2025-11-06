@@ -1,223 +1,222 @@
-import os
+# server.py
 from flask import Flask, request, jsonify
-import threading
-import time
-import base64
-import io
-from PIL import Image, ImageGrab
-import uuid
 from flask_cors import CORS
+import uuid
+import time
 
 app = Flask(__name__)
 CORS(app)
 
-devices = {}
-sessions = {}
-screen_streams = {}
-passwords = {}
+servers = {}
+screenshots = {}
+server_timeout = 300
 
 
-class ScreenStreamer:
-    def __init__(self, device_id):
-        self.device_id = device_id
-        self.active = True
-        self.last_screenshot = None
+class ServerManager:
+    @staticmethod
+    def cleanup_old_servers():
+        current_time = time.time()
+        expired_servers = []
 
-    def start_streaming(self):
-        def capture_screen():
-            while self.active:
-                try:
-                    screenshot = ImageGrab.grab()
-                    buffered = io.BytesIO()
-                    screenshot.save(buffered, format="JPEG", quality=50)
-                    img_str = base64.b64encode(buffered.getvalue()).decode()
-                    self.last_screenshot = img_str
-                    time.sleep(0.1)
-                except Exception as e:
-                    time.sleep(1)
+        for server_id, server in servers.items():
+            if current_time - server['last_updated'] > server_timeout:
+                expired_servers.append(server_id)
 
-        thread = threading.Thread(target=capture_screen, daemon=True)
-        thread.start()
+        for server_id in expired_servers:
+            del servers[server_id]
+            if server_id in screenshots:
+                del screenshots[server_id]
+
+    @staticmethod
+    def create_server(name, pin_code, max_users):
+        server_id = str(uuid.uuid4())[:8].upper()
+
+        servers[server_id] = {
+            'id': server_id,
+            'name': name,
+            'pin': pin_code,
+            'max_users': max_users,
+            'current_users': 0,
+            'status': 'Open',
+            'created_at': time.time(),
+            'last_updated': time.time(),
+            'connections': []
+        }
+
+        return server_id
+
+    @staticmethod
+    def update_server_status(server_id, current_users=None, status=None):
+        if server_id not in servers:
+            return False
+
+        if current_users is not None:
+            servers[server_id]['current_users'] = current_users
+
+        if status is not None:
+            servers[server_id]['status'] = status
+
+        servers[server_id]['last_updated'] = time.time()
+        return True
+
+    @staticmethod
+    def delete_server(server_id):
+        if server_id in servers:
+            del servers[server_id]
+            if server_id in screenshots:
+                del screenshots[server_id]
+            return True
+        return False
+
+    @staticmethod
+    def get_all_servers():
+        ServerManager.cleanup_old_servers()
+        return list(servers.values())
+
+    @staticmethod
+    def add_connection(server_id, connection_data):
+        if server_id not in servers:
+            return False
+
+        servers[server_id]['connections'].append({
+            'id': str(uuid.uuid4()),
+            'connected_at': time.time(),
+            **connection_data
+        })
+        servers[server_id]['last_updated'] = time.time()
+        return True
+
+    @staticmethod
+    def store_screenshot(server_id, screenshot_data):
+        screenshots[server_id] = {
+            'data': screenshot_data,
+            'timestamp': time.time()
+        }
+
+    @staticmethod
+    def get_screenshot(server_id):
+        if server_id in screenshots:
+            return screenshots[server_id]
+        return None
 
 
-@app.route('/share', methods=['POST'])
-def share_device():
-    data = request.json or {}
-    device_id = str(uuid.uuid4())[:8]
-    password = data.get('password')
-    name = data.get('name', f'Server-{device_id}')
+@app.route('/api/servers', methods=['GET'])
+def get_servers():
+    servers_list = ServerManager.get_all_servers()
+    return jsonify(servers_list)
 
-    streamer = ScreenStreamer(device_id)
-    streamer.start_streaming()
-    screen_streams[device_id] = streamer
 
-    if password:
-        passwords[device_id] = password
-        status = 'password_protected'
+@app.route('/api/servers', methods=['POST'])
+def create_server():
+    data = request.json
+    name = data.get('name', '').strip()
+    pin_code = data.get('pin', '').strip()
+    max_users = data.get('max_users', 5)
+
+    if not name:
+        return jsonify({'error': 'Server name is required'}), 400
+
+    server_id = ServerManager.create_server(name, pin_code, max_users)
+    return jsonify({
+        'server_id': server_id,
+        'message': f'Server "{name}" created successfully'
+    })
+
+
+@app.route('/api/servers/<server_id>', methods=['PUT'])
+def update_server(server_id):
+    data = request.json
+    current_users = data.get('current_users')
+    status = data.get('status')
+
+    if ServerManager.update_server_status(server_id, current_users, status):
+        return jsonify({'message': 'Server updated successfully'})
     else:
-        status = 'online'
-
-    devices[device_id] = {
-        'id': device_id,
-        'name': name,
-        'status': status,
-        'password_protected': bool(password),
-        'created_at': time.time()
-    }
-
-    return jsonify({
-        'device_id': device_id,
-        'message': 'Server created successfully',
-        'status': status,
-        'name': name
-    })
-
-
-@app.route('/stop_sharing', methods=['POST'])
-def stop_sharing():
-    data = request.json
-    device_id = data.get('device_id')
-
-    if device_id in devices:
-        del devices[device_id]
-    if device_id in screen_streams:
-        screen_streams[device_id].active = False
-        del screen_streams[device_id]
-    if device_id in passwords:
-        del passwords[device_id]
-
-    return jsonify({'message': 'Server stopped successfully'})
-
-
-@app.route('/devices', methods=['GET'])
-def get_devices():
-    current_time = time.time()
-    expired_devices = []
-
-    for device_id, device in devices.items():
-        if current_time - device['created_at'] > 3600:
-            expired_devices.append(device_id)
-
-    for device_id in expired_devices:
-        if device_id in devices:
-            del devices[device_id]
-        if device_id in screen_streams:
-            screen_streams[device_id].active = False
-            del screen_streams[device_id]
-        if device_id in passwords:
-            del passwords[device_id]
-
-    for device_id in devices:
-        if device_id in screen_streams and screen_streams[device_id].active:
-            if device_id in passwords:
-                devices[device_id]['status'] = 'password_protected'
-            else:
-                devices[device_id]['status'] = 'online'
-        else:
-            devices[device_id]['status'] = 'offline'
-
-    return jsonify({
-        'devices': list(devices.values())
-    })
-
-
-@app.route('/connect', methods=['POST'])
-def connect_to_device():
-    data = request.json
-    device_id = data.get('device_id')
-    password = data.get('password')
-
-    if device_id not in devices:
         return jsonify({'error': 'Server not found'}), 404
 
-    if device_id not in screen_streams:
-        return jsonify({'error': 'Server not available'}), 400
 
-    if device_id in passwords:
-        if not password or passwords[device_id] != password:
-            return jsonify({'error': 'Invalid password'}), 401
+@app.route('/api/servers/<server_id>', methods=['DELETE'])
+def delete_server(server_id):
+    if ServerManager.delete_server(server_id):
+        return jsonify({'message': 'Server deleted successfully'})
+    else:
+        return jsonify({'error': 'Server not found'}), 404
 
-    session_id = str(uuid.uuid4())
-    sessions[session_id] = {
-        'device_id': device_id,
-        'created_at': time.time(),
-        'active': True
-    }
 
-    devices[device_id]['status'] = 'busy'
+@app.route('/api/servers/<server_id>/connect', methods=['POST'])
+def connect_to_server(server_id):
+    data = request.json
+    pin_code = data.get('pin', '')
+
+    if server_id not in servers:
+        return jsonify({'error': 'Server not found'}), 404
+
+    server = servers[server_id]
+
+    if server['pin'] and server['pin'] != pin_code:
+        return jsonify({'error': 'Invalid PIN code'}), 401
+
+    if server['current_users'] >= server['max_users']:
+        return jsonify({'error': 'Server is full'}), 400
+
+    server['current_users'] += 1
+    if server['current_users'] >= server['max_users']:
+        server['status'] = 'Full'
+
+    server['last_updated'] = time.time()
+
+    ServerManager.add_connection(server_id, {
+        'user_name': data.get('user_name', 'Anonymous')
+    })
 
     return jsonify({
-        'session_id': session_id,
-        'device_id': device_id,
-        'message': 'Connected successfully'
+        'message': f'Connected to {server["name"]}',
+        'server_name': server['name']
     })
 
 
-@app.route('/screen', methods=['GET'])
-def get_screen():
-    session_id = request.args.get('session_id')
+@app.route('/api/servers/<server_id>/disconnect', methods=['POST'])
+def disconnect_from_server(server_id):
+    if server_id not in servers:
+        return jsonify({'error': 'Server not found'}), 404
 
-    if not session_id or session_id not in sessions:
-        return jsonify({'error': 'Invalid session'}), 401
+    server = servers[server_id]
+    if server['current_users'] > 0:
+        server['current_users'] -= 1
 
-    session = sessions[session_id]
-    device_id = session['device_id']
+    if server['current_users'] < server['max_users'] and server['status'] == 'Full':
+        server['status'] = 'Open'
 
-    if device_id not in screen_streams:
-        return jsonify({'error': 'Server not available'}), 404
-
-    streamer = screen_streams[device_id]
-
-    if streamer.last_screenshot:
-        return jsonify({
-            'screenshot': streamer.last_screenshot,
-            'timestamp': time.time()
-        })
-    else:
-        return jsonify({
-            'screenshot': None,
-            'message': 'No screen data available'
-        })
-
-
-@app.route('/disconnect', methods=['POST'])
-def disconnect():
-    data = request.json
-    session_id = data.get('session_id')
-
-    if session_id in sessions:
-        device_id = sessions[session_id]['device_id']
-        if device_id in devices:
-            if device_id in passwords:
-                devices[device_id]['status'] = 'password_protected'
-            else:
-                devices[device_id]['status'] = 'online'
-        del sessions[session_id]
+    server['last_updated'] = time.time()
 
     return jsonify({'message': 'Disconnected successfully'})
 
 
-@app.route('/send_keys', methods=['POST'])
-def send_keys():
+@app.route('/api/servers/<server_id>/screenshot', methods=['POST'])
+def upload_screenshot(server_id):
     data = request.json
-    session_id = data.get('session_id')
-    keys = data.get('keys')
+    screenshot_data = data.get('screenshot')
 
-    if not session_id or session_id not in sessions:
-        return jsonify({'error': 'Invalid session'}), 401
+    if not screenshot_data:
+        return jsonify({'error': 'Screenshot data is required'}), 400
 
-    return jsonify({'message': 'Keys sent successfully'})
+    ServerManager.store_screenshot(server_id, screenshot_data)
+    return jsonify({'message': 'Screenshot uploaded successfully'})
 
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({
-        'status': 'online',
-        'servers_count': len(devices),
-        'sessions_count': len(sessions)
-    })
+@app.route('/api/servers/<server_id>/screenshot', methods=['GET'])
+def get_screenshot(server_id):
+    screenshot = ServerManager.get_screenshot(server_id)
+    if screenshot:
+        return jsonify(screenshot)
+    else:
+        return jsonify({'error': 'No screenshot available'}), 404
+
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    return jsonify({'status': 'healthy', 'server_count': len(servers)})
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000, debug=True)
